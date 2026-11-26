@@ -18,10 +18,14 @@ sys.dont_write_bytecode = True
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
 DEV = Path('/Volumes/devSSD/Developer/lagrangian-native-20261117')
-PRODUCT = ['apps/macos/NativeReaderTextView.swift', 'apps/macos/NativeReaderSelection.swift',
-           'apps/macos/NativeReaderAccessibility.swift']
 COMMON = ['apps/macos/NativeReaderDocument.swift', 'apps/macos/NativeReaderOperations.swift',
           'apps/macos/NativeReaderInputTextView.swift']
+# Compile the session and controller as well as TextKit so retained-request
+# regressions exercise the real session lifecycle and check its composition.
+REGISTRY = json.loads((REPO / 'apps/macos/sources.json').read_text())
+PRODUCT = [f'apps/macos/{name}' for group in ('core', 'native') for name in REGISTRY[group]
+           if f'apps/macos/{name}' not in COMMON and name != 'CLI.swift']
+PRODUCT.append('apps/macos/NativeReaderWindowController.swift')
 
 
 def sha(path):
@@ -103,6 +107,60 @@ class TextInteractionTests(unittest.TestCase):
         save(cls.out / 'results.json', cls.results)
         save(cls.evidence_root / 'latest.json', {'evidence': str(cls.out), 'seconds': time.time() - cls.started})
 
+    def test_large_document_initial_window_lazy_lru_and_stale_work(self):
+        result = self.results['stage2']
+        self.assertGreater(result['objects'], 300)
+        self.assertEqual(result['initial'], 128)
+        self.assertEqual(result['maxCost'], 16 * 1024 * 1024)
+        self.assertGreater(result['batches'], 0)
+        self.assertGreater(result['partialBatches'], 1)
+        for field in ['offMain', 'eviction', 'retainedGeneration', 'widthCancellation', 'appearanceCancellation',
+                      'closeCancellation', 'selectionFindViewport', 'scroll', 'buffer', 'return', 'find', 'evictionPlaceholder',
+                      'findReflowNotification']:
+            self.assertTrue(result[field], field)
+
+    def test_failed_and_selection_held_refresh_keep_retained_lazy_loading(self):
+        result = self.results['stage2']['failures']
+        self.assertTrue(result['failedRefresh'])
+        self.assertTrue(result['heldRefresh'])
+
+    def test_transient_provider_error_retries_and_persistent_errors_are_bounded(self):
+        result = self.results['stage2']['failures']
+        self.assertEqual(result['transientCalls'], 2)
+        self.assertEqual(result['persistentCalls'], 3)
+
+    def test_cached_reopen_version_promotion_and_viewed_window_persistence(self):
+        cache = self.results['stage3']
+        self.assertEqual(cache['cachedWorkerCalls'], 0)
+        self.assertGreater(cache['persistedMath'], 0)
+        self.assertLessEqual(cache['persistedMath'], 256)
+        for field in ['readOnly', 'promotion', 'position', 'revisionInvalidation',
+                      'widthInvalidation', 'appearanceInvalidation', 'unreadExcluded',
+                      'smallWindow', 'closeFlush', 'notice', 'runtimeIndependent', 'reopenMismatch']:
+            self.assertTrue(cache[field], field)
+
+    def test_busy_release_waits_for_backoff_and_cancellation_stops_retry(self):
+        failures = self.results['stage2']['failures']
+        self.assertEqual(failures['backoffFailures'], [1, 2])
+        self.assertTrue(failures['busyRelease'])
+        self.assertTrue(failures['backoffCancellation'])
+
+    def test_offline_close_online_reopen_same_controller_restores_live_reading(self):
+        self.assertTrue(self.results['stage3']['offlineCloseOnlineReopen'])
+
+    def test_layout_retry_adopts_cached_viewport_before_live_confirmation(self):
+        self.assertTrue(self.results['stage3']['cachedRetryBeforeConfirmation'])
+
+    def test_revisited_viewport_survives_more_than_256_formula_visits(self):
+        cache = self.results['stage3']
+        self.assertGreater(cache['visitedFormulas'], 256)
+        self.assertTrue(cache['revisitedPersisted'])
+        self.assertEqual(cache['revisitedWorkerCalls'], 0)
+
+    def test_invalid_batch_and_attachment_updates_are_atomic(self):
+        self.assertTrue(self.results['stage2']['failures']['atomicBatch'])
+        self.assertTrue(self.results['stage2']['failures']['atomicCells'])
+
     def test_18_native_layout_draw_conditions(self):
         self.assertEqual(len(self.results['matrix']), 18)
         self.assertTrue(all(r['inkPixels'] > 100 and r['painted'] for r in self.results['matrix']))
@@ -139,8 +197,14 @@ class TextInteractionTests(unittest.TestCase):
 class CoreLongSelection(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.out = Path(os.environ['CORE_REVIEW_OUTPUT']) / ('long-' + str(time.time_ns()))
-        cls.out.mkdir()
+        root = Path(os.environ.get('CORE_REVIEW_OUTPUT', os.environ.get('NA02_OUTPUT_ROOT', str(DEV / 'test-output/text')))).resolve()
+        cls.out = root / ('long-' + str(time.time_ns()))
+        cls.out.mkdir(parents=True)
+        for key, folder in [('TMPDIR', 'tmp/text'), ('CLANG_MODULE_CACHE_PATH', 'cache/text/clang'),
+                            ('SWIFT_MODULECACHE_PATH', 'cache/text/swift')]:
+            value = DEV / folder
+            value.mkdir(parents=True, exist_ok=True)
+            os.environ[key] = str(value)
         cls.binary = cls.out / 'LongView'
         cls.commands = []
         # Recompile the independent literal Typst fixtures through the real

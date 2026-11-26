@@ -29,9 +29,9 @@ struct NativeObjectContext: Equatable, Codable {
     }
 }
 
-struct NativeMathLayout: Decodable {
-    struct Context: Decodable { let revision: String; let generation: Int; let theme: String }
-    struct Fragment: Decodable { let svg: String; let width: Double; let ascent: Double; let descent: Double }
+struct NativeMathLayout: Codable {
+    struct Context: Codable { let revision: String; let generation: Int; let theme: String }
+    struct Fragment: Codable { let svg: String; let width: Double; let ascent: Double; let descent: Double }
     let version: Int
     let inputHash: String
     let context: Context
@@ -45,17 +45,30 @@ struct NativeMathLayout: Decodable {
     static func decode(_ data: Data, math: NativeMath, context c: NativeObjectContext, width: Double) throws -> Self {
         guard data.count <= 8 * 1024 * 1024 else { throw NativeObjectError.budget }
         let result = try JSONDecoder().decode(Self.self, from: data)
+        guard result.context.generation == c.generation else { throw NativeObjectError.stale }
+        return try result.rebinding(math: math, context: c, width: width)
+    }
+
+    /// Disk generations are local to the previous view. Validate every stable
+    /// input before binding validated metrics to this view's layout generation.
+    func rebinding(math: NativeMath, context c: NativeObjectContext, width: Double) throws -> Self {
+        try c.validate()
+        let result = self
         let hash = SHA256.hash(data: Data(math.mathML.utf8)).map { String(format: "%02x", $0) }.joined()
         guard result.version == 1, result.inputHash == hash, result.font == "MathJaxNewcm",
               result.width == width, result.fontSize == c.fontSize,
-              result.context.revision == c.identity.revision, result.context.generation == c.generation,
+              result.context.revision == c.identity.revision, result.context.generation >= 0,
               result.context.theme == c.theme.rawValue else { throw NativeObjectError.stale }
         guard !result.fragments.isEmpty, result.fragments.count <= 256,
               ([result.whole] + result.fragments).allSatisfy({ f in
                   [f.width, f.ascent, f.descent].allSatisfy { $0.isFinite && $0 >= 0 && $0 <= 100000 } &&
                   f.width > 0 && f.ascent + f.descent > 0 && f.svg.utf8.count <= 8 * 1024 * 1024
               }) else { throw NativeObjectError.invalidGeometry }
-        return result
+        guard diagnostics.isEmpty, width.isFinite, (16...8192).contains(width),
+              ([whole] + fragments).reduce(0, { $0 + $1.svg.utf8.count }) <= 8 * 1024 * 1024 else { throw NativeObjectError.budget }
+        return Self(version: version, inputHash: inputHash,
+            context: Context(revision: c.identity.revision, generation: c.generation, theme: c.theme.rawValue),
+            font: font, fontSize: fontSize, width: width, whole: whole, fragments: fragments, diagnostics: diagnostics)
     }
 }
 
@@ -102,6 +115,7 @@ struct NativeObjectPlan {
     let pageCount: Int
     let diagnostics: [String]
     let cost: Int
+    var blockCosts: [String: Int] = [:]
 
     func hit(_ point: CGPoint) -> NativeObjectRegion? {
         regions.filter { $0.frames.contains { $0.contains(point) } }
@@ -171,10 +185,21 @@ struct NativeObjectPlan {
 // { node, width in try await worker.calculate(node.math!, context: c, width: width) }.
 // Adopt the immutable result on the view's MainActor store, then draw synchronously.
 enum NativeReaderPagedLayout {
+    typealias MathBatchProvider = ([(id: String, math: NativeMath, width: Double)], NativeObjectContext) async throws -> [String: NativeMathLayout]
     typealias MathProvider = (NativeReaderNode, Double) async throws -> NativeMathLayout
     static func layout(document: NativeReaderDocument, context: NativeObjectContext,
-                       assets: [String: Data], math: @escaping MathProvider,
+                       assets: [String: Data], mathBatch: MathBatchProvider? = nil, math: @escaping MathProvider,
                        cancelled: @escaping () -> Bool = { false }) async throws -> NativeObjectPlan {
+        try await layout(document: document, blockIDs: Set(document.blocks.map(\.id)), context: context,
+            assets: assets, mathBatch: mathBatch, math: math, cancelled: cancelled)
+    }
+
+    // Top-level block IDs select whole blocks. Descendant IDs select only that
+    // subtree, allowing an attachment window even within one long paragraph.
+    static func layout(document: NativeReaderDocument, blockIDs: Set<String>, context: NativeObjectContext,
+                       assets: [String: Data], mathBatch: MathBatchProvider? = nil, math: @escaping MathProvider,
+                       cancelled: @escaping () -> Bool = { false }) async throws -> NativeObjectPlan {
+        if cancelled() || Task.isCancelled { throw NativeObjectError.cancelled }
         try document.validate()
         guard document.identity == context.identity, document.generation == context.snapshotGeneration else { throw NativeObjectError.stale }
         try context.validate()
@@ -187,7 +212,7 @@ enum NativeReaderPagedLayout {
         }
         let builder = NativeObjectBuilder(context: context, font: font, assets: assets,
             descriptors: Dictionary(uniqueKeysWithValues: document.assets.map { ($0.id, $0) }), math: math, cancelled: cancelled)
-        return try await builder.build(document)
+        return try await builder.build(document, blockIDs: blockIDs, mathBatch: mathBatch)
     }
 }
 
@@ -200,6 +225,9 @@ private final class NativeObjectBuilder {
     let cancelled: () -> Bool
     var order = [String: Int](), diagnostics = [String](), cost = 0, steps = 0
     var decodedAssets = [String: NativeVectorScene]()
+    var collectingMath = false
+    var mathRequests = [(id: String, math: NativeMath, width: Double)]()
+    var batchedMath: [String: NativeMathLayout]?
     init(context: NativeObjectContext, font: NSFont, assets: [String: Data], descriptors: [String: NativeReaderAsset],
          math: @escaping NativeReaderPagedLayout.MathProvider, cancelled: @escaping () -> Bool) {
         self.context = context; self.font = font; self.assets = assets; self.descriptors = descriptors; self.math = math; self.cancelled = cancelled
@@ -212,14 +240,43 @@ private final class NativeObjectBuilder {
     func region(_ node: NativeReaderNode, block: String, frames: [CGRect]) -> NativeObjectRegion {
         NativeObjectRegion(blockID: block, node: node, frames: frames, readingOrder: order[node.id]!)
     }
-    func build(_ document: NativeReaderDocument) async throws -> NativeObjectPlan {
+    func build(_ document: NativeReaderDocument, blockIDs: Set<String>, mathBatch: NativeReaderPagedLayout.MathBatchProvider?) async throws -> NativeObjectPlan {
         let nodes = document.blocks.flatMap(\.orderedNodes)
         order = Dictionary(uniqueKeysWithValues: nodes.enumerated().map { ($0.element.id, $0.offset) })
-        var items = [Item](), regions = [NativeObjectRegion](), y: CGFloat = 16, pages = 1
-        let width = CGFloat(context.width) - 32, pageHeight = CGFloat(context.pageHeight)
-        for node in document.blocks where node.visible {
+        var roots = [(node: NativeReaderNode, block: String)]()
+        func select(_ node: NativeReaderNode, root: String) throws {
             try check()
-            let box = try await block(node, root: node.id, width: width)
+            guard node.visible else { return }
+            if blockIDs.contains(node.id) { roots.append((node, root)) }
+            else { for child in node.children { try select(child, root: root) } }
+        }
+        for node in document.blocks { try select(node, root: node.id) }
+        var items = [Item](), regions = [NativeObjectRegion](), y: CGFloat = 16, pages = 1
+        var blockCosts = [String: Int]()
+        let width = CGFloat(context.width) - 32, pageHeight = CGFloat(context.pageHeight)
+        if let mathBatch {
+            // Reuse the exact block/table/equation width policy in a metric-only
+            // pass; no assets or SVGs are decoded until batch results arrive.
+            collectingMath = true
+            for entry in roots { _ = try await block(entry.node, root: entry.block, width: width) }
+            collectingMath = false
+            try check()
+            batchedMath = mathRequests.isEmpty ? [:] : try await mathBatch(mathRequests, context)
+            guard Set(batchedMath!.keys) == Set(mathRequests.map(\.id)) else { throw NativeObjectError.stale }
+            cost = 0; steps = 0; diagnostics = []
+        }
+        for entry in roots {
+            try check()
+            let before = cost
+            // A subtree cache entry must carry its own conservative asset cost
+            // even when this plan shares a decoded scene with an earlier root.
+            let sharedAssets = Set(entry.node.orderedNodes.compactMap(\.assetID)).reduce(0) { total, id in
+                total + (decodedAssets[id].map { (assets[id]?.count ?? 0) * 16 + $0.decodedCost } ?? 0)
+            }
+            let box = try await block(entry.node, root: entry.block, width: width)
+            cost += box.items.count * 256 + box.regions.count * 256
+            try check()
+            blockCosts[entry.node.id] = cost - before + sharedAssets
             if context.mode == .paged {
                 guard box.height <= pageHeight - 32 else { throw NativeObjectError.unsupported("oversized-page-object") }
                 let bottom = CGFloat(pages - 1) * (pageHeight + 16) + pageHeight - 16
@@ -229,11 +286,10 @@ private final class NativeObjectBuilder {
             regions += box.regions.map { $0.moved(x: 16, y: y) }
             y += box.height + CGFloat(context.fontSize) * 0.6
         }
-        cost += items.count * 256 + regions.count * 256
         try check()
         return NativeObjectPlan(context: context, items: items, regions: regions.sorted { $0.readingOrder < $1.readingOrder },
             size: CGSize(width: context.width, height: context.mode == .paged ? CGFloat(pages) * (pageHeight + 16) : y + 16),
-            pageCount: pages, diagnostics: Array(Set(diagnostics)).sorted(), cost: cost)
+            pageCount: pages, diagnostics: Array(Set(diagnostics)).sorted(), cost: cost, blockCosts: blockCosts)
     }
     func textAttributes(traits: CTFontSymbolicTraits = [], link: String? = nil) throws -> [NSAttributedString.Key: Any] {
         let base = CTFontCreateWithName(font.fontName as CFString, font.pointSize, nil)
@@ -255,6 +311,9 @@ private final class NativeObjectBuilder {
         CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: try textAttributes()))
     }
     func image(_ node: NativeReaderNode, width: CGFloat) throws -> (NativeVectorScene, CGFloat, CGFloat) {
+        if collectingMath {
+            return (NativeVectorScene(viewBox: CGRect(x: 0, y: 0, width: 1, height: 1), shapes: []), 1, 1)
+        }
         guard let id = node.assetID, let descriptor = descriptors[id], let data = assets[id] else { throw NativeObjectError.unsupported("asset-missing") }
         let scene: NativeVectorScene
         if let cached = decodedAssets[id] { scene = cached }
@@ -296,7 +355,15 @@ private final class NativeObjectBuilder {
             switch n.kind {
             case .break: flush()
             case .math:
-                let response = try await math(n, Double(width))
+                if collectingMath {
+                    mathRequests.append((n.id, n.math!, Double(width)))
+                    return
+                }
+                let response: NativeMathLayout
+                if let batchedMath {
+                    guard let value = batchedMath[n.id] else { throw NativeObjectError.stale }
+                    response = value
+                } else { response = try await math(n, Double(width)) }
                 // Validate provider output as strictly as JSON decode, including
                 // exact requested width/context/input, even for injected adapters.
                 let expectedHash = SHA256.hash(data: Data(n.math!.mathML.utf8)).map { String(format: "%02x", $0) }.joined()

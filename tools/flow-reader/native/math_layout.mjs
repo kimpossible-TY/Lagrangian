@@ -13,7 +13,8 @@ import { createHash } from 'node:crypto';
 const fail = (code) => { throw new Error(code); };
 const hash = (s) => createHash('sha256').update(s).digest('hex');
 const LIMIT = 8 * 1024 * 1024;
-const tags = new Set('math mrow mi mn mo ms mtext mspace msup msub msubsup mfrac msqrt mroot mover munder munderover mtable mtr mtd menclose mpadded mphantom semantics annotation'.split(' '));
+const BATCH_LIMIT = 64 * 1024 * 1024;
+const tags = new Set('math mrow mi mn mo ms mtext mspace msup msub msubsup mfrac msqrt mroot mover munder munderover mtable mtr mtd menclose mpadded mphantom semantics annotation mmultiscripts mprescripts'.split(' '));
 const attrs = new Set('xmlns display mathvariant scriptlevel displaystyle lspace rspace form stretchy symmetric fence separator accent accentunder notation columnalign rowalign columnspacing rowspacing rowspan columnspan width height depth voffset linethickness encoding'.split(' '));
 
 // A closed vocabulary also rejects dangerous base commands (\\def, \\csname,
@@ -63,11 +64,44 @@ async function main() {
     if (p.version !== '4.1.3') fail('runtime-version');
   }
   let raw = '';
+  let inputBytes = 0;
+  // Decode across chunk boundaries: large batches can split a UTF-8 scalar.
+  process.stdin.setEncoding('utf8');
   for await (const chunk of process.stdin) {
-    raw += chunk.toString('utf8');
-    if (Buffer.byteLength(raw) > 256 * 1024) fail('input-limit');
+    inputBytes += Buffer.byteLength(chunk);
+    if (inputBytes > BATCH_LIMIT) fail('input-limit');
+    raw += chunk;
   }
   const input = JSON.parse(raw);
+  let output;
+  if (input?.kind === 'mathml-batch') {
+    if (Object.keys(input).some(k => !['kind', 'items'].includes(k)) ||
+        !Array.isArray(input.items) || input.items.length < 1 || input.items.length > 512) fail('input-batch');
+    const items = [];
+    let bytes = 0;
+    for (const item of input.items) {
+      if (!item || typeof item !== 'object' || Array.isArray(item) ||
+          (item.kind !== undefined && item.kind !== 'mathml')) fail('input-kind');
+      const result = await layout(item, root, req);
+      const itemBytes = Buffer.byteLength(JSON.stringify(result));
+      if (itemBytes > LIMIT) fail('output-limit');
+      bytes += itemBytes + 1;
+      if (bytes > BATCH_LIMIT) fail('output-limit');
+      items.push(result);
+    }
+    output = { kind: 'mathml-batch', items };
+  } else {
+    if (inputBytes > 256 * 1024) fail('input-limit');
+    output = await layout(input, root, req);
+  }
+  const encoded = JSON.stringify(output);
+  if (Buffer.byteLength(encoded) > (input.kind === 'mathml-batch' ? BATCH_LIMIT : LIMIT)) fail('output-limit');
+  process.stdout.write(encoded + '\n');
+}
+
+async function layout(input, root, req) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) fail('input-value');
+  if (Buffer.byteLength(JSON.stringify(input)) > 256 * 1024) fail('input-limit');
   if (Object.keys(input).some(k => !['kind', 'mathML', 'tex', 'display', 'width', 'fontSize', 'font', 'context'].includes(k))) fail('input-field');
   const kind = input.kind ?? 'mathml';
   const texPackages = ['base', 'ams'];
@@ -258,9 +292,7 @@ async function main() {
     runtime: { mathjax: '4.1.3', newcm: '4.1.3', ...(kind === 'tex' ? { inputPackages: texPackages } : {}), loaded: [...new Set(loaded)],
       moduleFiles: Object.keys(req.cache).filter(p => p.startsWith(root + sep)).map(p => p.slice(root.length + 1)).sort() } };
   if (kind === 'tex') Object.assign(output, { kind, normalizedTeX: source.trim(), normalizedMathML: mathML, semanticText, display });
-  const encoded = JSON.stringify(output);
-  if (Buffer.byteLength(encoded) > LIMIT) fail('output-limit');
-  process.stdout.write(encoded + '\n');
+  return output;
 }
 main().catch(error => {
   const allowed = /^[a-z][a-z0-9-]{0,64}$/.test(error.message ?? '') ? error.message : 'math-runtime-failure';

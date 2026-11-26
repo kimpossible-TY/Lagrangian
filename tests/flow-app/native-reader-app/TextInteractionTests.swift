@@ -14,6 +14,33 @@ struct TextTestError: Error, CustomStringConvertible {
 }
 @MainActor func tick() { RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.003)) }
 
+private struct TextDocumentProvider: NativeReaderDocumentProviding {
+    let load: (NativeReaderRequestContext) async throws -> NativeReaderDocument
+    func document(for context: NativeReaderRequestContext) async throws -> NativeReaderDocument { try await load(context) }
+}
+
+@MainActor private final class LayoutRestoreGate {
+    var armed = false
+    private var continuations = [CheckedContinuation<Void, Never>]()
+    func wait() async {
+        guard armed else { return }
+        await withCheckedContinuation { continuations.append($0) }
+    }
+    func release() {
+        armed = false
+        let waiting = continuations; continuations = []
+        waiting.forEach { $0.resume() }
+    }
+}
+
+private final class UnpaintedTestCell: NSTextAttachmentCell {
+    let size: NSSize
+    init(size: NSSize) { self.size = size; super.init(textCell: "") }
+    required init(coder: NSCoder) { fatalError("not used") }
+    override func cellSize() -> NSSize { size }
+    override func draw(withFrame cellFrame: NSRect, in controlView: NSView?) {}
+}
+
 // Hand-authored oracle. These literals/ranges were not computed by the view, map,
 // importer or layout manager. UTF16, scalar, UTF8 and grapheme units are separate.
 let oracleTexts = [
@@ -85,7 +112,7 @@ extension NSPasteboard {
 }
 
 @main struct TextInteractionMain {
-    @MainActor static func main() {
+    @MainActor static func main() async {
         do {
             FindPasteboardIsolation.install()
             _ = NSApplication.shared.setActivationPolicy(.prohibited)
@@ -97,7 +124,10 @@ extension NSPasteboard {
             let document = try NativeReaderDocument.decode(Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1])))
             let out = URL(fileURLWithPath: CommandLine.arguments[2])
             try check(document.blocks.map(\.displayText) == oracleTexts, "actual compiler logical reading order")
-            let results = try run(document, out: out)
+            var results = try run(document, out: out)
+            try visibleObjectPaintRegression(document)
+            results["stage2"] = try await largeObjectRegression(document)
+            results["stage3"] = try await diskWindowRegression(document, out: out)
             NSPasteboard(name: .init(FindPasteboardIsolation.findName)).releaseGlobally()
             NSPasteboard(name: .init(FindPasteboardIsolation.generalName)).releaseGlobally()
             let data = try JSONSerialization.data(withJSONObject: results, options: [.sortedKeys])
@@ -106,6 +136,411 @@ extension NSPasteboard {
             fputs("TextInteractionTests FAILED: \(error)\n", stderr)
             exit(1)
         }
+    }
+    nonisolated static func onMainThread() -> Bool { Thread.isMainThread }
+    @MainActor static func waitFor(_ message: String, _ predicate: () -> Bool) async throws {
+        let deadline = Date(timeIntervalSinceNow: 5)
+        while !predicate() && Date() < deadline { try await Task.sleep(nanoseconds: 5_000_000) }
+        try check(predicate(), message)
+    }
+    @MainActor static func finishLazyPreparation(_ view: NativeReaderTextView) async throws {
+        var passes = 0
+        while let task = view.lazyTask {
+            passes += 1
+            try check(passes <= 1024, "lazy preparation reaches a bounded idle state")
+            await task.value
+        }
+    }
+    @MainActor static func visibleObjectPaintRegression(_ fixture: NativeReaderDocument) throws {
+        let source = fixture.blocks.flatMap(\.orderedNodes).first { $0.kind == .math }!
+        var encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(source)) as! [String: Any]
+        encoded["rangeUTF16"] = [0, source.displayText.utf16.count]
+        encoded["anchors"] = []; encoded["annotationTargets"] = []
+        let blocks = try (0..<600).map { index -> NativeReaderNode in
+            var value = encoded; value["id"] = "paint-regression-\(index)"
+            return try JSONDecoder().decode(NativeReaderNode.self, from: JSONSerialization.data(withJSONObject: value))
+        }
+        let document = NativeReaderDocument(schemaVersion: 1, identity: fixture.identity, generation: 1,
+            requiredCapabilities: ["semantic-tree-v1"], blocks: blocks, assets: [], diagnostics: [])
+        try document.validate()
+        let (view, _) = try make(document)
+        defer { view.dispose() }
+        view.setFrameSize(NSSize(width: 640, height: 96))
+        let body = view.bodyTextView
+        let manager = body.layoutManager!
+        manager.ensureLayout(for: body.textContainer!)
+        let attachment = body.textStorage!.attribute(.attachment, at: 0, effectiveRange: nil) as! NSTextAttachment
+        let originalCell = attachment.attachmentCell!
+        attachment.attachmentCell = UnpaintedTestCell(size: originalCell.cellSize())
+        var acknowledgements = 0
+        view.callbacks.painted = { key in if key == view.renderKey { acknowledgements += 1 } }
+        let visible = body.visibleRect
+        guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(ceil(visible.width)),
+                pixelsHigh: Int(ceil(visible.height)), bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
+                isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+              let graphics = NSGraphicsContext(bitmapImageRep: bitmap) else { throw TextTestError(description: "paint regression bitmap") }
+        body.displayIgnoringOpacity(visible, in: graphics)
+        try check(acknowledgements == 0, "missing visible object paint prevents acknowledgement")
+        attachment.attachmentCell = originalCell
+        let start = ProcessInfo.processInfo.systemUptime
+        body.displayIgnoringOpacity(visible, in: graphics)
+        let elapsed = ProcessInfo.processInfo.systemUptime - start
+        try check(acknowledgements == 1, "full visible object draw acknowledges paint")
+        try check(elapsed < 0.5, "600-object visible draw took \(elapsed) seconds")
+    }
+    @MainActor static func largeObjectRegression(_ fixture: NativeReaderDocument) async throws -> [String: Any] {
+        let source = fixture.blocks.flatMap(\.orderedNodes).first { $0.kind == .math }!
+        var encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(source)) as! [String: Any]
+        encoded["rangeUTF16"] = [0, source.displayText.utf16.count]
+        encoded["anchors"] = []; encoded["annotationTargets"] = []
+        var meaning = encoded["math"] as! [String: Any]; meaning["display"] = true; encoded["math"] = meaning
+        let blocks = try (0..<320).map { i -> NativeReaderNode in
+            var value = encoded; value["id"] = "large-\(i)"
+            return try JSONDecoder().decode(NativeReaderNode.self, from: JSONSerialization.data(withJSONObject: value))
+        }
+        let document = NativeReaderDocument(schemaVersion: 1, identity: fixture.identity, generation: 1,
+            requiredCapabilities: ["semantic-tree-v1"], blocks: blocks, assets: [], diagnostics: [])
+        try document.validate()
+        try check(NativeReaderPreparedTextObject.isLarge(document) && NativeReaderPreparedTextObject.initialNodes(in: document).count == 128,
+            "320 formulas prepare only first 128")
+        let small = NativeReaderDocument(schemaVersion: 1, identity: document.identity, generation: 1,
+            requiredCapabilities: document.requiredCapabilities, blocks: Array(blocks.prefix(128)), assets: [], diagnostics: [])
+        try check(!NativeReaderPreparedTextObject.isLarge(small) && NativeReaderPreparedTextObject.initialNodes(in: small).count == 128,
+            "128 formulas remain eager")
+        let store = NativeReaderDocumentStore(); _ = try store.beginRequest()
+        let context = NativeReaderRequestContext(requestID: UUID(), viewID: store.viewID, generation: 1, target: document.identity)
+        let view = NativeReaderTextView(store: store)
+        defer { view.dispose() }
+        view.setFrameSize(NSSize(width: 640, height: 96))
+        let initialIDs = Set(blocks.prefix(128).map(\.id))
+        func prepared(_ node: NativeReaderNode, _ key: NativeReaderTextRenderKey, cost: Int = 65536) -> NativeReaderPreparedTextObject {
+            NativeReaderPreparedTextObject(key: key, size: NSSize(width: 240, height: 40), baseline: 0,
+                accessibilityLabel: node.math!.normalizedText, draw: { _ in }, cost: cost)
+        }
+        view.cachedObject = { node, key in initialIDs.contains(node.id) ? prepared(node, key) : nil }
+        try view.adopt(document, context: context)
+        var reflowNotifications = 0
+        view.callbacks.layoutChanged = { reflowNotifications += 1 }
+        _ = view.performFindAction(.showFindInterface)
+        try check(reflowNotifications == 1, "successful placeholder reflow notifies preparation owner when Find opens")
+        let key = view.renderKey!
+        let initial = Dictionary(uniqueKeysWithValues: blocks.prefix(128).map { ($0.id, prepared($0, key)) })
+        let placeholder = NativeReaderPreparedTextObject.placeholder(blocks[280], key: key)
+        try check(placeholder.isPlaceholder && placeholder.size == NSSize(width: 240, height: 36) && !placeholder.accessibilityLabel.isEmpty,
+            "deterministic bounded display placeholder")
+        var inline = encoded; var inlineMath = meaning; inlineMath["display"] = false; inline["math"] = inlineMath
+        let inlineNode = try JSONDecoder().decode(NativeReaderNode.self, from: JSONSerialization.data(withJSONObject: inline))
+        try check(NativeReaderPreparedTextObject.placeholder(inlineNode, key: key).size == NSSize(width: 24, height: 16), "inline placeholder")
+        let labelNode = fixture.blocks.flatMap(\.orderedNodes).first { $0.kind == .figure || $0.kind == .image }!
+        let narrowKey = NativeReaderTextRenderKey(identity: key.identity, documentGeneration: 1, viewID: key.viewID,
+            layoutGeneration: key.layoutGeneration, width: 100, appearance: key.appearance)
+        try check(NativeReaderPreparedTextObject.placeholder(labelNode, key: narrowKey).size == NSSize(width: 100, height: 120), "figure placeholder clamps to width")
+        var offMain = false, batches = 0, requestedIDs = Set<String>()
+        view.configureLazyObjects(key: key, initial: initial) { nodes, current in
+            batches += 1
+            requestedIDs.formUnion(nodes.map(\.id))
+            let result = await Task.detached {
+                let main = onMainThread()
+                let objects = Dictionary(uniqueKeysWithValues: nodes.map { node in
+                    (node.id, NativeReaderPreparedTextObject(key: current, size: NSSize(width: 240, height: 48), baseline: 0,
+                        accessibilityLabel: node.math!.normalizedText, draw: { _ in }, cost: 2 * 1024 * 1024))
+                })
+                return (objects, main)
+            }.value
+            offMain = !result.1
+            return result.0
+        }
+        try check(view.preparedObjectCost == 128 * 65536, "initial cost within exact budget")
+        let initialRange = try view.textMap!.presentationRange(blockID: blocks[0].id, logical: 0..<source.displayText.utf16.count)
+        view.bodyTextView.setSelectedRange(initialRange, affinity: .upstream, stillSelecting: false)
+        let selected = view.bodyTextView.selectedRanges, selection = store.selection
+        let text = view.bodyTextView.string, finder = view.scrollView.isFindBarVisible
+        try check(view.navigate(toNodeID: blocks[280].id), "TOC jump changes viewport")
+        view.prepareVisibleObjects()
+        let anchor = view.viewportAnchor()
+        let visible = view.scrollView.contentView.bounds
+        let buffered = visible.insetBy(dx: 0, dy: -visible.height)
+        let expectedRequests = Set(blocks.filter { node in
+            view.rects(blockID: node.id, logical: 0..<source.displayText.utf16.count).contains { $0.intersects(buffered) }
+        }.map(\.id))
+        try await waitFor("scroll lazy-prepares newly visible formula") { view.preparedObjectIDs.contains(blocks[280].id) }
+        try await waitFor("one viewport above and below requested") { expectedRequests.isSubset(of: requestedIDs) }
+        try check(expectedRequests.count > 1, "viewport buffer includes neighboring attachments")
+        try check(view.preparedObjectCost <= 16 * 1024 * 1024 && initialIDs.intersection(view.preparedObjectIDs).count < 128,
+            "offscreen entries evicted within 16 MiB")
+        let evictedID = initialIDs.subtracting(view.preparedObjectIDs).sorted().first!
+        let evictedRange = try view.textMap!.presentationRange(blockID: evictedID, logical: 0..<source.displayText.utf16.count)
+        let evictedAttachment = view.bodyTextView.textStorage!.attribute(.attachment, at: evictedRange.location,
+            effectiveRange: nil) as! NSTextAttachment
+        try check(evictedAttachment.attachmentCell!.cellSize() == NSSize(width: 240, height: 36),
+            "eviction replaces retained paint cell with lightweight placeholder metrics")
+        try check(view.bodyTextView.selectedRanges == selected && store.selection == selection && view.bodyTextView.selectionAffinity == .upstream &&
+            view.bodyTextView.string == text && view.scrollView.isFindBarVisible == finder, "in-place replacement preserves selection, text and find bar")
+        try check(view.viewportAnchor()?.position.blockID == anchor?.position.blockID && offMain, "viewport anchor and background preparation")
+        // Ordinary clip-view scrolling, without a navigation helper, must also
+        // trigger preparation through the bounds-change observer.
+        let scrollTarget = try view.textMap!.presentationRange(blockID: blocks[200].id, logical: 0..<source.displayText.utf16.count)
+        view.bodyTextView.scrollRangeToVisible(scrollTarget)
+        try await waitFor("clip-view scroll prepares missing attachment") { view.preparedObjectIDs.contains(blocks[200].id) }
+        try check(view.preparedObjectCost <= 16 * 1024 * 1024 && view.bodyTextView.selectedRanges == selected,
+            "metric-changing scroll batch preserves selection and budget")
+        try check(view.returnFromReference(), "Return restores the saved viewport")
+        try await waitFor("Return lazy-prepares evicted origin") { view.preparedObjectIDs.contains(blocks[0].id) }
+        try check(view.bodyTextView.selectedRanges == selected && view.scrollView.isFindBarVisible == finder,
+            "Return preparation retains selection and find interface")
+        // A provider may reduce a batch to fit the preparation budget. Nodes
+        // omitted from that result must still get their own later request.
+        let buffer = view.scrollView.contentView.bounds.insetBy(dx: 0, dy: -view.scrollView.contentView.bounds.height)
+        let partialIDs = Set(blocks.filter { node in
+            view.rects(blockID: node.id, logical: 0..<source.displayText.utf16.count).contains { $0.intersects(buffer) }
+        }.map(\.id))
+        try check(partialIDs.count > 1, "scroll buffer covers multiple formulas")
+        var partialBatches = 0
+        view.configureLazyObjects(key: key, initial: [:]) { nodes, current in
+            partialBatches += 1
+            guard let node = nodes.first else { return [:] }
+            return [node.id: prepared(node, current)]
+        }
+        try await waitFor("partial budget batches retry omitted nodes") { partialIDs.isSubset(of: view.preparedObjectIDs) }
+        try check(partialBatches > 1, "partial provider uses multiple bounded batches")
+        let cache = NativeReaderLazyObjectCache()
+        let half = 8 * 1024 * 1024
+        cache.insert(["a": prepared(blocks[0], key, cost: half), "b": prepared(blocks[1], key, cost: half)], protecting: [])
+        cache.touch(["a"])
+        cache.insert(["c": prepared(blocks[2], key, cost: half)], protecting: ["a"])
+        try check(cache.cost == 16 * 1024 * 1024 && Set(cache.objects.keys) == ["a", "c"], "deterministic LRU evicts least recent offscreen entry")
+        // Exercise AppKit's own query/action path at a distant attachment. Find
+        // deliberately changes selection; lazy completion must preserve that
+        // new result and the already open embedded bar.
+        func descendants(_ parent: NSView) -> [NSView] { parent.subviews.flatMap { [$0] + descendants($0) } }
+        let findStart = try view.textMap!.presentationRange(blockID: blocks[280].id, logical: 0..<source.displayText.utf16.count)
+        view.bodyTextView.setSelectedRange(NSRange(location: findStart.location, length: 0))
+        guard let bar = view.scrollView.findBarView,
+              let field = descendants(bar).compactMap({ $0 as? NSSearchField }).first,
+              let action = field.action else { throw TextTestError(description: "large document embedded Find field") }
+        field.stringValue = "\u{fffc}"
+        try check(field.sendAction(action, to: field.target) && view.performFindAction(.nextMatch), "large document native Find action")
+        let foundID = store.selection!.fragments.first!.blockID
+        let foundSelection = view.bodyTextView.selectedRanges
+        try check(Int(foundID.dropFirst("large-".count))! >= 280, "Find reveals a distant unprepared formula")
+        try await waitFor("Find viewport lazy-prepares matching attachment") { view.preparedObjectIDs.contains(foundID) }
+        try check(view.bodyTextView.selectedRanges == foundSelection && view.scrollView.isFindBarVisible,
+            "Find result and bar survive lazy attachment replacement")
+        // Request generation changes retain display authority for this key.
+        var continuation: CheckedContinuation<[String: NativeReaderPreparedTextObject], Never>?
+        var entered = false, finished = false
+        var retainedNodes = [NativeReaderNode]()
+        view.configureLazyObjects(key: key, initial: [:]) { nodes, current in
+            if !entered {
+                entered = true; retainedNodes = nodes
+                let value = await withCheckedContinuation { continuation = $0 }
+                finished = true
+                return value
+            }
+            return Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, prepared($0, current)) })
+        }
+        try await waitFor("generation batch entered") { entered }
+        _ = try store.beginRequest(); view.invalidateStaleLazyPreparation()
+        continuation!.resume(returning: Dictionary(uniqueKeysWithValues: retainedNodes.map { ($0.id, prepared($0, key)) }))
+        try await waitFor("late generation batch returned") { finished }
+        try await finishLazyPreparation(view)
+        try check(Set(retainedNodes.map(\.id)).isSubset(of: view.preparedObjectIDs), "retained key accepts work across a new request")
+        // An intentionally uncooperative provider returns after layout/lifetime
+        // revocation. Its late result must never mutate cells or cache.
+        entered = false; finished = false
+        view.configureLazyObjects(key: key, initial: [:]) { _, _ in
+            entered = true
+            let value = await withCheckedContinuation { continuation = $0 }
+            finished = true
+            return value
+        }
+        try await waitFor("width batch entered") { entered }
+        view.setFrameSize(NSSize(width: 520, height: 96))
+        continuation!.resume(returning: [blocks[280].id: prepared(blocks[280], key)])
+        try await waitFor("late width batch returned") { finished }
+        for _ in 0..<5 { await Task.yield() }
+        try check(view.preparedObjectIDs.isEmpty && view.requestedRenderKey != key, "width cancellation discards late metrics")
+        try rejects("stale in-place attachments") { try view.updateObjectAttachments(for: key, objects: initial) }
+        for reason in ["appearance", "close"] {
+            let current = view.requestedRenderKey!
+            try view.refreshPreparedObjects(for: current)
+            entered = false; finished = false
+            view.configureLazyObjects(key: current, initial: [:]) { _, _ in
+                entered = true
+                let value = await withCheckedContinuation { continuation = $0 }
+                finished = true
+                return value
+            }
+            try await waitFor("\(reason) batch entered") { entered }
+            if reason == "appearance" {
+                var appearance = view.textAppearance; appearance.theme = .dark
+                try view.setAppearance(appearance)
+            } else { view.dispose() }
+            continuation!.resume(returning: [blocks[280].id: prepared(blocks[280], current)])
+            try await waitFor("\(reason) batch returned") { finished }
+            for _ in 0..<5 { await Task.yield() }
+            try check(view.preparedObjectIDs.isEmpty, "\(reason) discards late objects")
+        }
+        let failures = try await lazyFailureRegressions(document)
+        return ["objects": blocks.count, "initial": initial.count, "maxCost": NativeReaderLazyObjectCache.maxCost,
+            "batches": batches, "offMain": offMain, "eviction": true, "retainedGeneration": true, "widthCancellation": true,
+            "selectionFindViewport": true, "scroll": true, "buffer": true, "return": true, "partialBatches": partialBatches,
+            "appearanceCancellation": true, "closeCancellation": true, "find": true, "evictionPlaceholder": true,
+            "findReflowNotification": true, "failures": failures]
+    }
+    @MainActor static func lazyFailureRegressions(_ document: NativeReaderDocument) async throws -> [String: Any] {
+        let blocks = document.blocks
+        func prepared(_ node: NativeReaderNode, _ key: NativeReaderTextRenderKey,
+                      cost: Int = 65536) -> NativeReaderPreparedTextObject {
+            .init(key: key, size: NSSize(width: 200, height: 36), baseline: 0,
+                  accessibilityLabel: node.displayText, draw: { _ in }, cost: cost)
+        }
+        func values(_ nodes: [NativeReaderNode], _ key: NativeReaderTextRenderKey) -> [String: NativeReaderPreparedTextObject] {
+            Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, prepared($0, key)) })
+        }
+        let store = NativeReaderDocumentStore()
+        // Use one shared store for Session and the retained TextKit presentation.
+        let retained = NativeReaderTextView(store: store)
+        defer { retained.dispose() }
+        retained.setFrameSize(NSSize(width: 640, height: 96))
+        retained.cachedObject = { [weak retained] node, key in
+            retained?.cachedLazyObject(node.id, key: key) ?? (blocks.prefix(128).contains(where: { $0.id == node.id }) ? prepared(node, key) : nil)
+        }
+        var rejectCandidate = false, preparations = 0, lazyKeys = [NativeReaderTextRenderKey]()
+        let session = NativeReaderSession(store: store, provider: TextDocumentProvider(load: { context in
+            document.rebinding(generation: context.generation)
+        }), target: { document.identity }, prepare: { candidate, context in
+            preparations += 1
+            if rejectCandidate { throw TextTestError(description: "deterministic candidate preparation failure") }
+            let key = try retained.preparationKey(for: candidate, context: context)
+            return .init(isCurrent: { true }, adopt: {
+                try retained.adopt(candidate, context: context)
+                retained.configureLazyObjects(key: key, initial: values(Array(blocks.prefix(128)), key)) { nodes, current in
+                    lazyKeys.append(current)
+                    return values(nodes, current)
+                }
+            })
+        })
+        defer { session.event(.dispose) }
+        // The same presentation reconciliation used by WindowController.
+        session.onChange = {
+            retained.invalidateStaleLazyPreparation()
+            retained.prepareVisibleObjects()
+        }
+        session.refresh()
+        try await waitFor("initial retained publication") { session.state == .reading && store.document != nil }
+        try await finishLazyPreparation(retained)
+        let retainedDocument = store.document!, key = retained.renderKey!, context = retained.context!
+        let initialIDs = retained.preparedObjectIDs, initialCost = retained.preparedObjectCost
+        rejectCandidate = true
+        session.refresh()
+        try check(retained.preparedObjectIDs == initialIDs && retained.preparedObjectCost == initialCost,
+                  "request start preserves retained cache and accounting")
+        try await waitFor("failed refresh settles on retained document") { session.failure != nil }
+        try check(store.document == retainedDocument && retained.renderKey == key && retained.context == context,
+                  "failure preserves retained publication")
+        try check(retained.navigate(toNodeID: blocks[280].id), "navigate after failed refresh")
+        try await finishLazyPreparation(retained)
+        try check(retained.preparedObjectIDs.contains(blocks[280].id), "failed refresh still prepares retained placeholders")
+        let range = try retained.textMap!.presentationRange(blockID: blocks[280].id, logical: 0..<blocks[280].displayText.utf16.count)
+        retained.bodyTextView.setSelectedRange(range, affinity: .upstream, stillSelecting: false)
+        let selection = store.selection, selectedRanges = retained.bodyTextView.selectedRanges
+        let callsBeforeHold = preparations, heldIDs = retained.preparedObjectIDs, heldCost = retained.preparedObjectCost
+        rejectCandidate = false
+        session.refresh()
+        try await waitFor("selection-held refresh settles") { session.state == .offline && session.failure == nil }
+        try check(preparations == callsBeforeHold && store.document == retainedDocument && retained.renderKey == key &&
+                  retained.preparedObjectIDs == heldIDs && retained.preparedObjectCost == heldCost,
+                  "held refresh preserves retained provider/cache without preparing candidate")
+        try check(retained.navigate(toNodeID: blocks[200].id), "navigate during selection-held refresh")
+        try await finishLazyPreparation(retained)
+        try check(retained.preparedObjectIDs.contains(blocks[200].id) && !lazyKeys.isEmpty && lazyKeys.allSatisfy { $0 == key },
+                  "held refresh lazy work uses retained render key")
+        try check(store.selection == selection && retained.bodyTextView.selectedRanges == selectedRanges,
+                  "retained loading preserves active selection")
+        try rejects("retained pixels do not grant current source authority") { try session.authorize(context) }
+
+        // A transient busy response retries the same IDs; a persistent response
+        // stops after the initial attempt plus exactly two retries in this epoch.
+        var transientCalls = 0, workerBusy = true
+        var retryFailures = [Int]()
+        retained.lazyRetryDelay = { failure in
+            retryFailures.append(failure)
+            workerBusy = false // Deterministic simulated worker teardown at the wait boundary.
+            await Task.yield(); try Task.checkCancellation()
+        }
+        retained.configureLazyObjects(key: key, initial: [:]) { nodes, current in
+            transientCalls += 1
+            if workerBusy { throw TextTestError(description: "math-worker-busy") }
+            return values(nodes, current)
+        }
+        try await finishLazyPreparation(retained)
+        try check(transientCalls == 2 && retryFailures == [1] && retained.preparedObjectIDs.contains(blocks[200].id), "busy worker teardown completes at retry backoff boundary")
+        retryFailures = []
+        var persistentCalls = 0
+        retained.configureLazyObjects(key: key, initial: [:]) { _, _ in
+            persistentCalls += 1
+            throw TextTestError(description: "persistent math-worker-busy")
+        }
+        try await finishLazyPreparation(retained)
+        for _ in 0..<5 { retained.prepareVisibleObjects(); try await finishLazyPreparation(retained) }
+        try check(persistentCalls == 3 && retryFailures == [1, 2] && retained.preparedObjectIDs.isEmpty, "persistent error bounded to two delayed retries per ID")
+        var cancelledRetryCalls = 0, delayEntered = false
+        retained.lazyRetryDelay = { _ in
+            delayEntered = true
+            try await Task.sleep(nanoseconds: 10_000_000_000)
+        }
+        retained.configureLazyObjects(key: key, initial: [:]) { _, _ in
+            cancelledRetryCalls += 1; throw TextTestError(description: "math-worker-busy")
+        }
+        try await waitFor("retry entered cancellable delay") { delayEntered }
+        retained.cancelLazyPreparation()
+        await Task.yield()
+        try check(cancelledRetryCalls == 1 && retained.lazyTask == nil, "cancel backoff never dispatches a retry")
+
+        func attachment(_ node: NativeReaderNode) throws -> NSTextAttachment {
+            let range = try retained.textMap!.presentationRange(blockID: node.id, logical: 0..<node.displayText.utf16.count)
+            return retained.bodyTextView.textStorage!.attribute(.attachment, at: range.location, effectiveRange: nil) as! NSTextAttachment
+        }
+        // The valid first entry used to mutate before the invalid later entry.
+        // Snapshot every cell's identity, not just its metrics or visible pixels.
+        let attachments = try blocks.map(attachment)
+        let cells = attachments.map { $0.attachmentCell! }
+        var invalid = NativeReaderPreparedTextObject(key: key, size: NSSize(width: key.width + 1, height: 40),
+            baseline: 0, accessibilityLabel: blocks[201].displayText, draw: { _ in }, cost: 65536)
+        let invalidPair = [blocks[200].id: prepared(blocks[200], key), blocks[201].id: invalid]
+        try rejects("atomic direct attachment update") { try retained.updateObjectAttachments(for: key, objects: invalidPair) }
+        try check(zip(attachments, cells).allSatisfy { $0.0.attachmentCell === $0.1 }, "invalid later cell leaves every cell untouched")
+
+        // Seed a full LRU with offscreen objects, then return a valid expensive
+        // visible object plus an invalid object. A nontransactional insert would
+        // evict the seed and drift both cost and cells before rejecting metrics.
+        var batchContinuation: CheckedContinuation<[String: NativeReaderPreparedTextObject], Never>?
+        var batchNodes = [NativeReaderNode](), invalidCalls = 0
+        let seed = [blocks[0].id: prepared(blocks[0], key, cost: NativeReaderLazyObjectCache.maxCost)]
+        retained.configureLazyObjects(key: key, initial: seed) { nodes, _ in
+            invalidCalls += 1; batchNodes = nodes
+            return await withCheckedContinuation { batchContinuation = $0 }
+        }
+        try await waitFor("invalid batch entered") { batchContinuation != nil }
+        let batchTask = retained.lazyTask!
+        let beforeIDs = retained.preparedObjectIDs, beforeCost = retained.preparedObjectCost
+        let beforeCells = attachments.map { $0.attachmentCell! }
+        let beforeSelection = retained.bodyTextView.selectedRanges, beforeText = retained.bodyTextView.string
+        try check(!batchNodes.isEmpty, "invalid batch has visible missing objects")
+        // Invalid offscreen output must be checked even if the LRU would omit it.
+        invalid.cost = NativeReaderLazyObjectCache.maxCost + 1
+        batchContinuation!.resume(returning: [batchNodes[0].id: prepared(batchNodes[0], key, cost: 1024 * 1024), blocks[319].id: invalid])
+        await batchTask.value
+        try check(retained.preparedObjectIDs == beforeIDs && retained.preparedObjectCost == beforeCost &&
+                  retained.cachedLazyObject(blocks[0].id, key: key)?.cost == NativeReaderLazyObjectCache.maxCost,
+                  "invalid batch leaves LRU entries and exact cost unchanged")
+        try check(zip(attachments, beforeCells).allSatisfy { $0.0.attachmentCell === $0.1 } &&
+                  retained.bodyTextView.selectedRanges == beforeSelection && retained.bodyTextView.string == beforeText,
+                  "invalid batch leaves all cells and selection/text unchanged")
+        try check(invalidCalls == 1 && retained.lazyTask == nil, "invalid result is rejected without transient retry")
+        return ["failedRefresh": true, "heldRefresh": true, "transientCalls": transientCalls,
+                "persistentCalls": persistentCalls, "backoffFailures": [1, 2], "backoffCancellation": true, "busyRelease": true, "atomicBatch": true, "atomicCells": true]
     }
     @MainActor static func make(_ document: NativeReaderDocument, provider: Bool = true) throws -> (NativeReaderTextView, NativeReaderRequestContext) {
         let store = NativeReaderDocumentStore()
@@ -630,4 +1065,263 @@ extension NSPasteboard {
     try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: out)
     try check(failures == 0, "F4/LS01 ordinary selection/copy/AX/guard failures: \(failures)")
     print("F4/LS01 \(count) blocks: \(rows.count) attempts pass")
+}
+
+
+private final class LayoutWorkerCalls: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+    func record(_ value: NativeMathExecution) { lock.lock(); defer { lock.unlock() }; count += 1 }
+    func value() -> Int { lock.lock(); defer { lock.unlock() }; return count }
+}
+
+extension TextInteractionMain {
+    @MainActor static func diskWindowRegression(_ fixture: NativeReaderDocument, out: URL) async throws -> [String: Any] {
+        let source = fixture.blocks.flatMap(\.orderedNodes).first { $0.kind == .math }!
+        var encoded = try JSONSerialization.jsonObject(with: JSONEncoder().encode(source)) as! [String: Any]
+        encoded["rangeUTF16"] = [0, source.displayText.utf16.count]
+        encoded["anchors"] = []; encoded["annotationTargets"] = []
+        var meaning = encoded["math"] as! [String: Any]; meaning["display"] = true; encoded["math"] = meaning
+        let blocks = try (0..<320).map { i -> NativeReaderNode in
+            var value = encoded; value["id"] = "disk-window-\(i)"
+            return try JSONDecoder().decode(NativeReaderNode.self, from: JSONSerialization.data(withJSONObject: value))
+        }
+        let document = NativeReaderDocument(schemaVersion: 1, identity: fixture.identity, generation: 1,
+            requiredCapabilities: ["semantic-tree-v1"], blocks: blocks, assets: [], diagnostics: [])
+        let profile = Profile(id: "layout-window", name: "Layout window", root: out.path, entry: "main.typ",
+            fonts: [], packages: out.path, port: 12345, publicURL: "", label: "test.layout-window")
+        let owner = NativeReaderRecoveryStore(root: out.appendingPathComponent("disk-window"))
+        let storage = NativeReaderOfflineStorage(owner: owner)
+        let disk = storage.layoutCache!
+        try check(disk.root == owner.root.deletingLastPathComponent().appendingPathComponent("layout-cache", isDirectory: true), "offline storage derives shared layout-cache")
+        let calls = LayoutWorkerCalls(), environment = ProcessInfo.processInfo.environment
+        let runtime = NativeReaderRuntime(node: URL(fileURLWithPath: environment["FLOW_TEST_NODE"] ?? "/opt/homebrew/bin/node"),
+            helper: URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("tools/flow-reader/native/math_layout.mjs"),
+            runtime: URL(fileURLWithPath: environment["FLOW_TEST_NATIVE_RUNTIME"] ?? "/missing"), record: { calls.record($0) })
+        func provider() -> TextDocumentProvider {
+            TextDocumentProvider { context in
+                NativeReaderDocument(schemaVersion: document.schemaVersion, identity: context.target, generation: context.generation,
+                    requiredCapabilities: document.requiredCapabilities, blocks: blocks, assets: [], diagnostics: [])
+            }
+        }
+        let live = NativeReaderWindowController(provider: provider(), target: { _ in document.identity }, runtime: runtime,
+            show: false, fixtureMode: true, offlineStorage: storage)
+        _ = live.open(profile) { _ in }
+        try await waitFor("live window adopted") { live.session.state == .reading }
+        try await finishLazyPreparation(live.textView)
+        try check(!live.textView.preparedObjectIDs.isEmpty && live.textView.preparedObjectIDs.count < 128, "initial preparation is viewport-only, even before persistence")
+        try check(!live.textView.preparedObjectIDs.contains(blocks[250].id), "unread formula never computed")
+        // Visit a distant reading location and persist its actual accepted math.
+        let anchor = NativeReaderViewportAnchor(identity: document.identity,
+            position: .init(blockID: blocks[180].id, utf16: 0, affinity: .downstream), offsetY: 0)
+        live.textView.restoreViewport(anchor)
+        try await finishLazyPreparation(live.textView)
+        try check(live.textView.preparedObjectIDs.contains(blocks[180].id), "viewed distant window prepared lazily")
+        live.persistLayoutWindow(immediate: true); await live.layoutPersistenceTask?.value
+        var saved = try await disk.latest(ownerID: [profile.id, profile.root, profile.entry].joined(separator: "\n"))!
+        try check(saved.restoration.blockID != blocks[0].id && saved.layouts[blocks[180].id] != nil,
+            "last reading position and viewed formula persisted")
+        try check(saved.layouts[blocks[250].id] == nil && saved.layouts.count <= 256 && saved.assets.isEmpty,
+            "disk excludes unread formulas and unreferenced assets")
+        let distantSnapshot = saved
+        // Visit enough distinct formulas to evict the first screen from the
+        // 256-layout working set, while its prepared pixels remain in TextView.
+        // Persist explicitly below so queued scroll notifications cannot cancel
+        // the particular save whose completion this regression awaits.
+        live.textView.callbacks.readingPositionChanged = {}
+        var visited = Set<String>()
+        for index in stride(from: 0, to: blocks.count, by: 10) {
+            live.textView.restoreViewport(.init(identity: document.identity,
+                position: .init(blockID: blocks[index].id, utf16: 0, affinity: .downstream), offsetY: 0))
+            try await finishLazyPreparation(live.textView)
+            visited.formUnion(live.textView.viewedWindowMathLayouts.keys)
+        }
+        live.persistLayoutWindow(immediate: true); await live.layoutPersistenceTask?.value
+        let afterTour = try await disk.latest(ownerID: saved.ownerID)!
+        try check(visited.count > 256 && afterTour.layouts[blocks[0].id] == nil &&
+            live.textView.preparedObjectIDs.contains(blocks[0].id), "first prepared screen outlives viewed-layout LRU eviction")
+        let beforeReturn = calls.value()
+        live.textView.restoreViewport(.init(identity: document.identity,
+            position: .init(blockID: blocks[0].id, utf16: 0, affinity: .downstream), offsetY: 0))
+        try await finishLazyPreparation(live.textView)
+        try check(live.textView.viewedWindowMathLayouts[blocks[0].id] != nil && calls.value() == beforeReturn,
+            "returning to retained prepared pixels invokes no worker")
+        live.persistLayoutWindow(immediate: true); await live.layoutPersistenceTask?.value
+        saved = try await disk.latest(ownerID: saved.ownerID)!
+        try check(saved.layouts[blocks[0].id] != nil, "revisited screen formulas restored to disk snapshot (\(saved.restoration.blockID ?? "nil"), \(saved.layouts.count) layouts)")
+        live.dispose(); await live.layoutPersistenceTask?.value
+
+        var confirmVersion = false, targetCalls = 0
+        let restoreGate = LayoutRestoreGate()
+        let before = calls.value()
+        let reopened = NativeReaderWindowController(provider: provider(), target: { _ in
+            targetCalls += 1
+            while !confirmVersion { try await Task.sleep(nanoseconds: 1_000_000) }
+            return document.identity
+        }, runtime: runtime, invalidate: { await restoreGate.wait() }, show: false, fixtureMode: true, offlineStorage: storage)
+        _ = reopened.open(profile) { _ in }
+        try await waitFor("cache read-only before version confirmation") {
+            reopened.session.isCachedCopy && reopened.store.document != nil && targetCalls == 1
+        }
+        try await finishLazyPreparation(reopened.textView)
+        try check(reopened.session.isReadOnly && reopened.session.isCachedCopy && calls.value() == before,
+            "cached visible formulas use zero worker calls before live verification")
+        try check(reopened.hostWindow.notice.stringValue == "캐시된 화면 (읽기 전용) · 최신 버전 확인 중...", "cached read-only notice shown during version check")
+        try check(reopened.textView.preparedObjectIDs.contains(blocks[0].id), "cached revisited reading window displayed")
+        try rejects("cached source/chat mutation denied") { try reopened.session.authorize(reopened.session.context!) }
+        let restoredBlock = try reopened.textView.captureViewport().blockID
+        confirmVersion = true
+        try await waitFor("matching revision promoted") { reopened.session.state == .reading && !reopened.session.isReadOnly }
+        try await finishLazyPreparation(reopened.textView)
+        try reopened.session.authorize(reopened.session.context!)
+        try check(calls.value() == before && !reopened.session.isCachedCopy, "same revision promotes without recomputing cached formulas")
+        let revisitedWorkerCalls = calls.value() - before
+        let promotedBlock = try reopened.textView.captureViewport().blockID
+        try check(promotedBlock == restoredBlock, "promotion preserves restored block")
+        reopened.persistLayoutWindow(immediate: true); await reopened.layoutPersistenceTask?.value
+        // Reuse the same controller: losing the network, closing and explicitly
+        // reading again must restore online authority only after cached adoption.
+        let readingPositionChanged = reopened.textView.callbacks.readingPositionChanged
+        reopened.textView.callbacks.readingPositionChanged = {}
+        await reopened.layoutPersistenceTask?.value
+        try await disk.save(distantSnapshot)
+        restoreGate.armed = true
+        reopened.session.event(.network(false))
+        reopened.hostWindow.onClose?()
+        confirmVersion = false
+        _ = reopened.open(profile) { _ in }
+        try await waitFor("cached restore awaits closed-view invalidation") {
+            reopened.session.isCachedCopy && reopened.session.state == .loading && targetCalls == 2
+        }
+        // A layout retry may adopt while the original restore is still awaiting
+        // invalidation. It must retain the cached screen and its restoration.
+        reopened.session.preparationChanged()
+        try await waitFor("same offline controller reopens cached screen") {
+            reopened.session.isCachedCopy && reopened.session.state == .offline && reopened.acceptedPaintKey != nil &&
+                reopened.session.context == reopened.textView.context &&
+                reopened.acceptedPaintKey == reopened.textView.renderKey && reopened.store.document != nil && targetCalls == 2
+        }
+        try await finishLazyPreparation(reopened.textView)
+        try check(reopened.session.isReadOnly && calls.value() == before, "offline-close reopen stays cached read-only before confirmation")
+        try check(reopened.textView.preparedObjectIDs.contains(blocks[180].id) &&
+            reopened.textView.viewedWindowMathLayouts[blocks[180].id] != nil,
+            "layout retry adopts cached restoration before live confirmation")
+        restoreGate.release()
+        confirmVersion = true
+        try await waitFor("same controller restores network and live authority") {
+            reopened.session.state == .reading && !reopened.session.isReadOnly && !reopened.session.isCachedCopy
+        }
+        try await finishLazyPreparation(reopened.textView)
+        try reopened.session.authorize(reopened.session.context!)
+        try check(calls.value() == before, "same-controller live confirmation reuses revisited formulas")
+        reopened.textView.callbacks.readingPositionChanged = readingPositionChanged
+        var appearance = reopened.textView.textAppearance
+        for field in ["fontSize", "fontName", "theme"] {
+            let oldKey = try await disk.latest(ownerID: saved.ownerID)!.key
+            let beforeAppearance = calls.value()
+            switch field {
+            case "fontSize": appearance.fontSize += 2
+            case "fontName": appearance.fontName = "Helvetica"
+            default: appearance.theme = .dark
+            }
+            try reopened.textView.setAppearance(appearance)
+            try await waitFor("\(field) window reconfigured") { reopened.acceptedPaintKey == reopened.textView.requestedRenderKey }
+            try await finishLazyPreparation(reopened.textView)
+            try check(calls.value() > beforeAppearance && !reopened.textView.preparedObjectIDs.contains(blocks[250].id), "\(field) recomputes only visible viewport")
+            let invalidated = try await disk.load(ownerID: saved.ownerID, key: oldKey) == nil
+            try check(invalidated, "\(field) invalidates old disk key")
+            reopened.persistLayoutWindow(immediate: true); await reopened.layoutPersistenceTask?.value
+        }
+        let appearanceKey = try await disk.latest(ownerID: saved.ownerID)!.key
+        let window = reopened.hostWindow.window!
+        let contentSize = window.contentView!.bounds.size
+        window.setContentSize(NSSize(width: contentSize.width - 80, height: contentSize.height))
+        window.contentView!.layoutSubtreeIfNeeded()
+        try await waitFor("resized window reconfigured") {
+            reopened.textView.requestedRenderKey?.width != CGFloat(appearanceKey.width) &&
+                reopened.acceptedPaintKey == reopened.textView.requestedRenderKey
+        }
+        try await finishLazyPreparation(reopened.textView)
+        let widthInvalid = try await disk.load(ownerID: saved.ownerID, key: appearanceKey) == nil
+        try check(widthInvalid, "width invalidates old disk key")
+        reopened.dispose(); await reopened.layoutPersistenceTask?.value
+
+        let revision = NativeDocumentIdentity(documentID: document.identity.documentID, serviceID: document.identity.serviceID,
+            revision: "stage3-new-revision", scope: document.identity.scope)
+        // Restore the original geometry so this case isolates revision changes.
+        try await disk.save(saved)
+        let previous = saved.key
+        var verifyNewVersion = false
+        let changed = NativeReaderWindowController(provider: provider(), target: { _ in
+            while !verifyNewVersion { try await Task.sleep(nanoseconds: 1_000_000) }; return revision
+        }, runtime: runtime, show: false, fixtureMode: true, offlineStorage: storage)
+        _ = changed.open(profile) { _ in }
+        try await waitFor("old revision shown read-only") { changed.session.isCachedCopy && changed.store.document != nil }
+        let revisionRetained = try await disk.load(ownerID: saved.ownerID, key: previous) != nil
+        try check(revisionRetained, "revision test retains matching geometry until server confirmation")
+        verifyNewVersion = true
+        try await waitFor("new revision adopted") { changed.session.state == .reading && changed.store.document?.identity == revision }
+        try await finishLazyPreparation(changed.textView)
+        let revisionInvalid = try await disk.load(ownerID: saved.ownerID, key: previous) == nil
+        try check(revisionInvalid, "revision invalidates old disk key")
+        try check(!changed.textView.preparedObjectIDs.contains(blocks[250].id), "new revision never precomputes unread window")
+        changed.dispose(); await changed.layoutPersistenceTask?.value
+
+        // Small documents use the same window discipline. Closing without an
+        // explicit save persists that window, and cached paint needs no runtime.
+        let smallBlocks = Array(blocks.prefix(64))
+        let smallProvider = TextDocumentProvider { context in
+            NativeReaderDocument(schemaVersion: 1, identity: context.target, generation: context.generation,
+                requiredCapabilities: ["semantic-tree-v1"], blocks: smallBlocks, assets: [], diagnostics: [])
+        }
+        let smallDisk = NativeReaderLayoutCache(root: out.appendingPathComponent("small-layout-cache"))
+        let small = NativeReaderWindowController(provider: smallProvider, target: { _ in document.identity }, runtime: runtime,
+            show: false, fixtureMode: true, layoutCache: smallDisk)
+        _ = small.open(profile) { _ in }
+        try await waitFor("small viewport adopted") { small.session.state == .reading }
+        try await finishLazyPreparation(small.textView)
+        try check(!small.textView.preparedObjectIDs.isEmpty && small.textView.preparedObjectIDs.count < smallBlocks.count &&
+            !small.textView.preparedObjectIDs.contains(smallBlocks.last!.id), "small document never precomputes unread math")
+        small.dispose(); await small.layoutPersistenceTask?.value
+        let closed = try await smallDisk.latest(ownerID: saved.ownerID)!
+        try check(!closed.layouts.isEmpty && closed.layouts[smallBlocks.last!.id] == nil, "close flushes only viewed layouts")
+        var smallVerified = false
+        let smallReopen = NativeReaderWindowController(provider: smallProvider, target: { _ in
+            while !smallVerified { try await Task.sleep(nanoseconds: 1_000_000) }; return document.identity
+        }, show: false, fixtureMode: true, layoutCache: smallDisk)
+        _ = smallReopen.open(profile) { _ in }
+        try await waitFor("small cached viewport adopted without runtime") { smallReopen.session.isCachedCopy && smallReopen.store.document != nil }
+        try await finishLazyPreparation(smallReopen.textView)
+        try check(!smallReopen.textView.preparedObjectIDs.isEmpty && smallReopen.session.isReadOnly, "cached small formulas render without a worker")
+        smallVerified = true
+        try await waitFor("small cached viewport promoted") { smallReopen.session.state == .reading && !smallReopen.session.isReadOnly }
+        try await finishLazyPreparation(smallReopen.textView)
+        smallReopen.dispose(); await smallReopen.layoutPersistenceTask?.value
+        let beforeMismatch = calls.value()
+        var mismatchVerified = false
+        let mismatch = NativeReaderWindowController(provider: smallProvider, target: { _ in
+            while !mismatchVerified { try await Task.sleep(nanoseconds: 1_000_000) }; return document.identity
+        }, runtime: runtime, show: false, fixtureMode: true, layoutCache: smallDisk)
+        var differentFont = mismatch.textView.textAppearance
+        differentFont.fontName = "Helvetica"
+        try mismatch.textView.setAppearance(differentFont)
+        _ = mismatch.open(profile) { _ in }
+        try await waitFor("changed font cached document shown read-only") { mismatch.session.isCachedCopy && mismatch.store.document != nil }
+        try await finishLazyPreparation(mismatch.textView)
+        let fontMismatchInvalidated = try await smallDisk.load(ownerID: closed.ownerID, key: closed.key) == nil
+        try check(fontMismatchInvalidated, "reopen with a different font invalidates old metrics before version confirmation")
+        try check(calls.value() > beforeMismatch && !mismatch.textView.preparedObjectIDs.contains(smallBlocks.last!.id), "font mismatch lazily recomputes viewed window only")
+        let mismatchCalls = calls.value()
+        mismatchVerified = true
+        try await waitFor("font mismatch promoted") { mismatch.session.state == .reading && !mismatch.session.isReadOnly }
+        try await finishLazyPreparation(mismatch.textView)
+        try check(calls.value() == mismatchCalls, "font mismatch promotion reuses newly computed visible math")
+        mismatch.dispose(); await mismatch.layoutPersistenceTask?.value
+        return ["cachedWorkerCalls": 0, "readOnly": true, "promotion": true, "position": true,
+            "revisionInvalidation": true, "widthInvalidation": true, "appearanceInvalidation": true,
+            "unreadExcluded": true, "persistedMath": saved.layouts.count, "smallWindow": true,
+            "closeFlush": true, "notice": true, "runtimeIndependent": true, "reopenMismatch": true,
+            "offlineCloseOnlineReopen": true, "visitedFormulas": visited.count, "revisitedWorkerCalls": revisitedWorkerCalls,
+            "revisitedPersisted": true, "cachedRetryBeforeConfirmation": true]
+    }
 }

@@ -608,10 +608,10 @@ actor NativeReaderTransport: NativeReaderDocumentProviding {
     func document(for context: NativeReaderRequestContext) async throws -> NativeReaderDocument {
         let fields = try fields(context)
         active = context
-        let response = try await network.send(request(path: "api/native-document", fields: fields, get: true), 32 * 1024 * 1024)
+        let response = try await network.send(request(path: "api/native-document", fields: fields, get: true), NativeReaderDocument.maximumJSONBytes)
         try Task.checkCancellation()
         guard active == context, !disposed else { throw NativeReaderContractError.staleGeneration }
-        try validate(response, limit: 32 * 1024 * 1024)
+        try validate(response, limit: NativeReaderDocument.maximumJSONBytes)
         guard let binding = response.headers["x-native-input-id"], binding.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else {
             throw NativeReaderOperationFailure.rejected(code: "input-binding")
         }
@@ -702,6 +702,20 @@ actor NativeReaderTransport: NativeReaderDocumentProviding {
 /// NA06's profile-scoped composition seam. Re-resolve through ReaderManager on
 /// reconnect; a new incarnation replaces only this view's transport/action adapters.
 actor NativeReaderManagedClient: NativeReaderDocumentProviding {
+    private static let revokeEditorConsentDidFinishLock = NSLock()
+    nonisolated(unsafe) private static var revokeEditorConsentDidFinishStorage: (@Sendable () -> Void)?
+    internal static var onRevokeEditorConsentDidFinish: (@Sendable () -> Void)? {
+        get {
+            revokeEditorConsentDidFinishLock.lock()
+            defer { revokeEditorConsentDidFinishLock.unlock() }
+            return revokeEditorConsentDidFinishStorage
+        }
+        set {
+            revokeEditorConsentDidFinishLock.lock()
+            defer { revokeEditorConsentDidFinishLock.unlock() }
+            revokeEditorConsentDidFinishStorage = newValue
+        }
+    }
     private let resolver: NativeReaderManagedResolver
     private let root: String
     private let entry: String
@@ -756,7 +770,11 @@ actor NativeReaderManagedClient: NativeReaderDocumentProviding {
         return actions
     }
     func revokeEditorConsent() async {
-        guard editor?.consentID != nil else { return }
+        defer {
+            let onFinish = Self.onRevokeEditorConsentDidFinish
+            onFinish?()
+        }
+        guard !editorConsentRevoked, editor?.consentID != nil else { return }
         editorConsentRevoked = true; epoch += 1
         if let transport { await transport.revokeEditorConsent() }
         else { _ = await resolver.retryEditorCleanup(root: root, entry: entry, readerID: readerID) }

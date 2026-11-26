@@ -54,13 +54,15 @@ private final class OriginalPreparationGate: @unchecked Sendable {
                                   "font": "MathJaxNewcm", "fontSize": c.fontSize, "width": width, "whole": f, "fragments": [f], "diagnostics": []]
         return try NativeMathLayout.decode(JSONSerialization.data(withJSONObject: data), math: n.math!, context: c, width: width)
     }
-    static func bitmap(_ size: CGSize, dark: Bool) throws -> CGContext {
+    static func bitmap(_ size: CGSize, dark: Bool, opaque: Bool = true) throws -> CGContext {
         let w = Int(ceil(size.width)), h = Int(ceil(size.height))
         guard w > 0, h > 0, w * h < 16000000, let ctx = CGContext(data: nil, width: w, height: h,
             bitsPerComponent: 8, bytesPerRow: 4 * w, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
             throw NativeObjectError.budget
         }
-        ctx.setFillColor(CGColor(gray: dark ? 0 : 1, alpha: 1)); ctx.fill(CGRect(origin: .zero, size: size))
+        if opaque {
+            ctx.setFillColor(CGColor(gray: dark ? 0 : 1, alpha: 1)); ctx.fill(CGRect(origin: .zero, size: size))
+        } else { ctx.clear(CGRect(origin: .zero, size: size)) }
         ctx.translateBy(x: 0, y: CGFloat(h)); ctx.scaleBy(x: 1, y: -1)
         return ctx
     }
@@ -143,6 +145,93 @@ private final class OriginalPreparationGate: @unchecked Sendable {
         if mode == "symbol-overflow" {
             do { try symbolOverflow(root: root) }
             catch { fputs("symbol overflow oracle failed: \(error)\n", stderr); exit(1) }
+            return
+        }
+        if mode == "pde-svg" {
+            let cases = try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("pde-svg-cases.json"))) as! [[String: Any]]
+            var results = [[String: Any]]()
+            for item in cases {
+                let scene = try NativeVectorScene.decode(Data((item["svg"] as! String).utf8), dark: false)
+                try require(scene.image != nil, "nested SVG and PNG use validated rich renderer")
+                let ctx = try bitmap(CGSize(width: 100, height: 80), dark: false)
+                scene.draw(in: ctx, rect: CGRect(x: 0, y: 0, width: 100, height: 80))
+                let boxes = item["rects"] as! [[Int]]
+                try savePNG(ctx, root.appendingPathComponent("pde-" + (item["name"] as! String) + ".png"))
+                for y in 0..<80 { for x in 0..<100 {
+                    let p = sample(ctx, x, y)
+                    let blue = p[2] > p[0] + 20 && p[2] > p[1] + 20
+                    let expected = boxes.contains { b in x >= b[0] && x < b[0] + b[2] && y >= b[1] && y < b[1] + b[3] }
+                    try require(blue == expected, "PDE SVG independent pixel mask: " + (item["name"] as! String) + " at \(x),\(y): \(p)")
+                } }
+                results.append(["name": item["name"]!, "bluePixels": pixels(ctx, dark: false).blue])
+            }
+            let invalid = try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("pde-svg-invalid.json"))) as! [String]
+            for svg in invalid {
+                try expectFailure("PDE SVG invalid") { _ = try NativeVectorScene.decode(Data(svg.utf8), dark: false) }
+            }
+            for css in ["width:20px;height:10px", "width:15pt;height:7.5pt", "width:1.25em;height:0.625em"] {
+                let svg = "<svg style=\"\(css);overflow:visible\" viewBox=\"0 0 40 20\"><rect width=\"40\" height=\"20\"/></svg>"
+                let scene = try NativeVectorScene.decode(Data(svg.utf8), dark: false)
+                try require(scene.intrinsicSize == CGSize(width: 20, height: 10), "CSS viewport intrinsic geometry")
+            }
+            let alphaCases = try JSONSerialization.jsonObject(with: Data(contentsOf: root.appendingPathComponent("pde-svg-alpha.json"))) as! [[String: Any]]
+            for item in alphaCases {
+                let scene = try NativeVectorScene.decode(Data((item["svg"] as! String).utf8), dark: false)
+                let ctx = try bitmap(CGSize(width: 100, height: 80), dark: false, opaque: false)
+                scene.draw(in: ctx, rect: CGRect(x: 0, y: 0, width: 100, height: 80))
+                let rgba = item["rgba"] as! [Double]
+                // Read uncomposited alpha directly: CoreSVG and CoreGraphics
+                // use different RGB color spaces, which affect RGB-over-white
+                // comparisons but cannot change this independent alpha oracle.
+                let actual = sample(ctx, 20, 20)
+                let alphaByte = Int(ctx.data!.assumingMemoryBound(to: UInt8.self)[20 * ctx.bytesPerRow + 20 * 4 + 3])
+                let expectedAlpha = Int((rgba[3] * 255).rounded())
+                try require(abs(alphaByte - expectedAlpha) <= 1,
+                            "hex alpha native pixel: " + (item["name"] as! String) + " \(alphaByte) expected \(expectedAlpha)")
+                let dominant = rgba[0] == 1 ? 0 : 2
+                try require(actual[dominant] > actual[1] + 20 && actual[dominant] > actual[2 - dominant] + 20,
+                            "hex alpha native paint override: " + (item["name"] as! String))
+                if item["rich"] as? Bool == true {
+                    try require(scene.image != nil, "hex alpha nested SVG uses native raster consumer")
+                } else {
+                    guard let shape = scene.shapes.last else { throw NSError(domain: "NA03 hex alpha native shape missing", code: 1) }
+                    let alpha = (item["name"] as! String).hasPrefix("fill") ? shape.fill!.alpha : shape.stroke!.alpha
+                    try require(abs(alpha - rgba[3]) < 1e-12, "hex alpha exact native geometry")
+                }
+            }
+            for paint in ["fill", "stroke"] {
+                for suffix in ["-direct", "-opaque"] {
+                    try require(alphaCases.contains { ($0["name"] as? String)?.hasPrefix(paint + "-defs-use-") == true &&
+                        ($0["name"] as? String)?.hasSuffix(suffix) == true }, "defs/use alpha pixel coverage")
+                }
+            }
+            let embedded = Data((cases.first { ($0["name"] as? String) == "png-over-1mib" }!["svg"] as! String).utf8)
+            try require(embedded.count > 1024 * 1024, "embedded SVG exceeds old 1 MiB limit")
+            let embeddedLimit = 6 * 1024 * 1024
+            var atLimit = embedded
+            atLimit.append(Data(repeating: 32, count: embeddedLimit - embedded.count))
+            let boundary = try NativeVectorScene.decode(atLimit, dark: false)
+            try require(boundary.image != nil && boundary.decodedCost <= 16 * 1024 * 1024, "embedded byte boundary decodes within pixel cap")
+            atLimit.append(32)
+            try expectFailure("embedded encoded byte cap") { _ = try NativeVectorScene.decode(atLimit, dark: false) }
+            let plain = "<svg viewBox=\"0 0 100 80\"><rect width=\"20\" height=\"10\"/></svg>"
+            let plainBytes = Data(plain.utf8)
+            _ = try NativeVectorScene.decode(plainBytes, dark: false, pixelBudget: plainBytes.count * 16)
+            try expectFailure("plain SVG proportional byte budget") {
+                _ = try NativeVectorScene.decode(plainBytes, dark: false, pixelBudget: plainBytes.count * 16 - 1)
+            }
+            try expectFailure("embedded caller pixel budget") {
+                _ = try NativeVectorScene.decode(embedded, dark: false, pixelBudget: 10000)
+            }
+            for svg in [embedded, Data("<svg viewBox=\"0 0 100 80\"><g opacity=\"0.5\"><rect width=\"20\" height=\"10\"/></g></svg>".utf8)] {
+                for budget in [16 * 1024 * 1024, Int.max] {
+                    try expectFailure("decoded pixel hard cap") {
+                        _ = try NativeVectorScene.decode(svg, dark: false, pixelBudget: budget, targetSize: CGSize(width: 1100, height: 1100))
+                    }
+                }
+            }
+            try write(["cases": results, "rejected": invalid.count, "alphaCases": alphaCases.count,
+                       "byteAndPixelLimitsChecked": true], root.appendingPathComponent("pde-svg-results.json"))
             return
         }
         if mode == "raw-import" { try await rawImport(root: root, oracle: oracle); return }
@@ -325,7 +414,10 @@ private final class OriginalPreparationGate: @unchecked Sendable {
             }
         }
         try write(richResults, root.appendingPathComponent("rich-asset-results.json"))
-        let labeled = try NativeVectorScene.decode(Data(contentsOf: root.appendingPathComponent("raw-labeled.svg")), dark: false)
+        // This glyph oracle uses the compiler's original 74.506 x 30 user
+        // coordinates, independently of its CSS em display viewport.
+        let labeled = try NativeVectorScene.decode(Data(contentsOf: root.appendingPathComponent("raw-labeled.svg")),
+                                                   dark: false, targetSize: CGSize(width: 74.506, height: 30))
         let labeledCtx = try bitmap(labeled.viewBox.size, dark: false)
         labeled.draw(in: labeledCtx, rect: CGRect(origin: .zero, size: labeled.viewBox.size))
         var black = 0
@@ -481,6 +573,111 @@ private final class OriginalPreparationGate: @unchecked Sendable {
         let directPlan = try await NativeReaderPagedLayout.layout(document: doc, context: first, assets: assets,
             math: { node, width in try await worker.calculate(node.math!, context: first, width: width) })
         try require(directPlan.items.map(\.frame) == firstPlan.items.map(\.frame), "end-to-end production async layout")
+        let batchLog = ExecutionLog()
+        let batchWorker = NativeMathWorker(node: URL(fileURLWithPath: config["node"]!), helper: URL(fileURLWithPath: config["helper"]!),
+            runtime: URL(fileURLWithPath: config["runtime"]!), record: { batchLog.append($0) })
+        let batchItems = (0..<260).map { (id: "formula-\($0)", math: n.math!, width: first.width - 32) }
+        let batched = try await batchWorker.calculateBatch(batchItems, context: first)
+        try require(batched.count == 260 && batchLog.values.count == 2, "260 formulas in exactly two sandboxed subprocesses")
+        for item in batchItems {
+            let value = batched[item.id]!
+            try require(value.inputHash == calculated.inputHash && value.width == calculated.width && value.fontSize == calculated.fontSize &&
+                value.context.revision == calculated.context.revision && value.context.generation == calculated.context.generation &&
+                value.context.theme == calculated.context.theme && value.font == calculated.font && value.diagnostics == calculated.diagnostics,
+                "batch single metadata parity")
+            try require(value.whole.svg == calculated.whole.svg && value.whole.width == calculated.whole.width &&
+                value.whole.ascent == calculated.whole.ascent && value.whole.descent == calculated.whole.descent &&
+                value.fragments.map(\.svg) == calculated.fragments.map(\.svg) && value.fragments.map(\.width) == calculated.fragments.map(\.width) &&
+                value.fragments.map(\.ascent) == calculated.fragments.map(\.ascent) && value.fragments.map(\.descent) == calculated.fragments.map(\.descent),
+                "exact batch single paint/geometry parity")
+        }
+        try await expectAsyncFailure("duplicate batch IDs") { _ = try await batchWorker.calculateBatch([batchItems[0], batchItems[0]], context: first) }
+        let callsBeforeEmpty = batchLog.values.count
+        let empty = try await batchWorker.calculateBatch([], context: first)
+        try require(empty.isEmpty && batchLog.values.count == callsBeforeEmpty, "empty batch starts no process")
+        let distinctItems = batchItems.enumerated().map { index, item in
+            (id: item.id, math: item.math, width: Double(100 + index))
+        }
+        // A deterministic protocol adapter enforces the invocation boundary
+        // independently of deduplication. Real-runtime exact parity is above;
+        // 260 unrelated MathJax computations are not a timing oracle.
+        let boundedHelper = root.appendingPathComponent("bounded-batch.mjs")
+        try """
+            const good = \(String(decoding: data, as: UTF8.self));
+            let raw = ''; for await (const chunk of process.stdin) raw += chunk;
+            const request = JSON.parse(raw);
+            if (request.kind !== 'mathml-batch' || request.items.length > 256) process.exit(1);
+            process.stdout.write(JSON.stringify({kind: 'mathml-batch', items: request.items.map(item =>
+                ({...good, width: item.width, fontSize: item.fontSize, context: item.context}))}));
+            """.write(to: boundedHelper, atomically: true, encoding: .utf8)
+        let distinctLog = ExecutionLog()
+        let distinctWorker = NativeMathWorker(node: URL(fileURLWithPath: config["node"]!), helper: boundedHelper,
+            runtime: URL(fileURLWithPath: config["runtime"]!), record: { distinctLog.append($0) })
+        let distinct = try await distinctWorker.calculateBatch(distinctItems, context: first)
+        try require(distinct.count == 260 && distinctLog.values.count == 2,
+            "260 distinct width requests cross the 256-item subprocess boundary")
+        for item in distinctItems {
+            try require(distinct[item.id]!.width == item.width && distinct[item.id]!.inputHash == calculated.inputHash,
+                "every distinct width response is bound to its request")
+        }
+        let callsBeforeInvalid = batchLog.values.count
+        try await expectAsyncFailure("invalid final chunk starts no child") {
+            _ = try await batchWorker.calculateBatch(Array(distinctItems.prefix(256)) + [(id: "invalid", math: n.math!, width: .nan)], context: first)
+        }
+        try require(batchLog.values.count == callsBeforeInvalid, "batch preflight rejects before any subprocess")
+        // Corrupt only the second result: every item must be validated, not
+        // merely the envelope or the first formula in a successful process.
+        let validJSON = String(decoding: data, as: UTF8.self)
+        let corruptions = ["bad.inputHash = 'wrong'", "bad.context.revision = 'wrong'", "bad.context.generation += 1",
+            "bad.context.theme = 'wrong'", "bad.width += 1", "bad.fontSize += 1", "bad.whole.width = -1",
+            "bad.fragments[0].ascent = -1"]
+        for (index, corruption) in corruptions.enumerated() {
+            let helper = root.appendingPathComponent("invalid-batch-\(index).mjs")
+            try """
+                const good = \(validJSON);
+                const bad = JSON.parse(JSON.stringify(good));
+                bad.width += 1;
+                \(corruption);
+                for await (const chunk of process.stdin) {}
+                process.stdout.write(JSON.stringify({kind: 'mathml-batch', items: [good, bad]}));
+                """.write(to: helper, atomically: true, encoding: .utf8)
+            let invalid = NativeMathWorker(node: URL(fileURLWithPath: config["node"]!), helper: helper,
+                runtime: URL(fileURLWithPath: config["runtime"]!))
+            try await expectAsyncFailure("invalid second batch item \(index)") {
+                _ = try await invalid.calculateBatch([batchItems[0], (id: "different-width", math: n.math!, width: first.width - 31)], context: first)
+            }
+        }
+        let batchedPlan = try await NativeReaderPagedLayout.layout(document: doc, context: first, assets: assets,
+            mathBatch: { items, c in try await worker.calculateBatch(items, context: c) },
+            math: { _, _ in throw NativeObjectError.unsupported("unexpected-single-call") })
+        try require(batchedPlan.items.map(\.frame) == firstPlan.items.map(\.frame), "batch full layout including table/equation width parity")
+        let chosen = doc.blocks.first { $0.orderedNodes.contains { $0.kind == .math } }!
+        let subset = try await NativeReaderPagedLayout.layout(document: doc, blockIDs: [chosen.id], context: first, assets: assets,
+            mathBatch: { items, c in try await worker.calculateBatch(items, context: c) },
+            math: { _, _ in throw NativeObjectError.stale })
+        try require(!subset.regions.isEmpty && subset.regions.allSatisfy { $0.blockID == chosen.id } && subset.cost <= 16 * 1024 * 1024,
+            "subset never prepares other blocks and preserves budget")
+        try await expectAsyncFailure("cancelled batch subset") {
+            _ = try await NativeReaderPagedLayout.layout(document: doc, blockIDs: [chosen.id], context: first, assets: assets,
+                mathBatch: { _, _ in throw NativeObjectError.stale }, math: noMath, cancelled: { true })
+        }
+        var windowNode = try JSONSerialization.jsonObject(with: JSONEncoder().encode(n)) as! [String: Any]
+        windowNode["rangeUTF16"] = [0, n.displayText.utf16.count]
+        windowNode["anchors"] = []; windowNode["annotationTargets"] = []
+        let windowBlocks = try (0..<320).map { index -> NativeReaderNode in
+            var value = windowNode; value["id"] = "window-\(index)"
+            return try JSONDecoder().decode(NativeReaderNode.self, from: JSONSerialization.data(withJSONObject: value))
+        }
+        let large = NativeReaderDocument(schemaVersion: 1, identity: doc.identity, generation: doc.generation,
+            requiredCapabilities: ["semantic-tree-v1"], blocks: windowBlocks, assets: [], diagnostics: [])
+        let window = try await NativeReaderPagedLayout.layout(document: large, blockIDs: Set(windowBlocks.prefix(128).map(\.id)),
+            context: first, assets: [:], mathBatch: { items, c in try await worker.calculateBatch(items, context: c) }, math: noMath)
+        try require(window.regions.count == 128 && window.cost <= 16 * 1024 * 1024 &&
+            window.blockCosts.values.reduce(0, +) == window.cost, "real 320-formula document initial window and exact retained cost")
+        try write(["formulas": batched.count, "subprocesses": callsBeforeEmpty, "parity": true,
+            "distinctFormulas": distinct.count, "distinctSubprocesses": distinctLog.values.count, "invalidPreflight": true,
+            "subsetCost": subset.cost, "widthParity": true, "invalidItemsRejected": corruptions.count,
+            "largeObjects": windowBlocks.count, "initialObjects": window.regions.count, "initialCost": window.cost], root.appendingPathComponent("stage2-batch.json"))
         // These child scripts are explicitly fake failure adapters; the real
         // runtime success above and real late-output decode remain separate.
         let delay = root.appendingPathComponent("delay-helper.mjs")
@@ -492,6 +689,11 @@ private final class OriginalPreparationGate: @unchecked Sendable {
         do { _ = try await pending.value; throw NSError(domain: "cancel accepted", code: 3) }
         catch NativeObjectError.cancelled { }
         try require(ProcessInfo.processInfo.systemUptime - started < 2, "bounded subprocess cancellation")
+        let batchStarted = ProcessInfo.processInfo.systemUptime
+        let pendingBatch = Task { try await slow.calculateBatch(Array(batchItems.prefix(2)), context: first) }
+        try await Task.sleep(nanoseconds: 200000000); pendingBatch.cancel()
+        try await expectAsyncFailure("cancelled batch subprocess") { _ = try await pendingBatch.value }
+        try require(ProcessInfo.processInfo.systemUptime - batchStarted < 2, "batch cancellation kills child promptly")
         let deadline = NativeMathWorker(node: URL(fileURLWithPath: config["node"]!), helper: delay, runtime: URL(fileURLWithPath: config["runtime"]!), timeout: 0.1, record: { executionLog.append($0) })
         do { _ = try await deadline.calculate(n.math!, context: first, width: first.width - 32); throw NSError(domain: "timeout accepted", code: 3) }
         catch NativeObjectError.unsupported("math-helper-timeout") { }

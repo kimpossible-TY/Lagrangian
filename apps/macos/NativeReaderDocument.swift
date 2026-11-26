@@ -42,12 +42,14 @@ struct NativeTableCell: Codable, Equatable {
 // Typed CSS image semantics, separate from renderer geometry. Old schema-1
 // memberwise callers can omit imageLayout; wire decoding never invents it.
 struct NativeImageLength: Codable, Equatable {
-    enum Unit: String, Codable { case px, pt, em }
+    enum Unit: String, Codable { case px, pt, em; case percent = "%" }
     let value: Double
     let unit: Unit
-    func points(fontSize: Double) -> Double { unit == .px ? value * 72 / 96 : unit == .em ? value * fontSize : value }
+    func points(fontSize: Double, reference: Double = 100) -> Double {
+        unit == .percent ? reference * value / 100 : unit == .px ? value * 72 / 96 : unit == .em ? value * fontSize : value
+    }
     func validate() throws {
-        guard value.isFinite, value > 0, value <= 4096 else { throw NativeReaderContractError.invalidDocument }
+        guard value.isFinite, value > 0, value <= (unit == .percent ? 100 : 4096) else { throw NativeReaderContractError.invalidDocument }
     }
 }
 
@@ -65,7 +67,7 @@ struct NativeImageLayout: Codable, Equatable {
     let decoding: Decoding?
 
     func validate() throws {
-        guard naturalUnit != .em else { throw NativeReaderContractError.invalidDocument }
+        guard naturalUnit == .pt || naturalUnit == .px else { throw NativeReaderContractError.invalidDocument }
         try width?.validate(); try height?.validate()
     }
     func size(naturalWidth: Double, naturalHeight: Double, fontSize: Double) throws -> (width: Double, height: Double) {
@@ -74,8 +76,10 @@ struct NativeImageLayout: Codable, Equatable {
             throw NativeReaderContractError.invalidDocument
         }
         let scale = naturalUnit == .px ? 72.0 / 96 : 1
-        let w = width?.points(fontSize: fontSize) ?? height.map { $0.points(fontSize: fontSize) * naturalWidth / naturalHeight } ?? naturalWidth * scale
-        let h = height?.points(fontSize: fontSize) ?? width.map { $0.points(fontSize: fontSize) * naturalHeight / naturalWidth } ?? naturalHeight * scale
+        let explicitWidth = width?.points(fontSize: fontSize, reference: naturalWidth * scale)
+        let explicitHeight = height?.points(fontSize: fontSize, reference: naturalHeight * scale)
+        let w = explicitWidth ?? explicitHeight.map { $0 * naturalWidth / naturalHeight } ?? naturalWidth * scale
+        let h = explicitHeight ?? explicitWidth.map { $0 * naturalHeight / naturalWidth } ?? naturalHeight * scale
         guard w.isFinite, h.isFinite, w > 0, h > 0, w <= 4096, h <= 4096 else {
             throw NativeReaderContractError.invalidDocument
         }
@@ -129,6 +133,7 @@ struct NativeReaderNode: Codable, Equatable {
     let alt: String?
     var imageLayout: NativeImageLayout? = nil
     var projectRef: NativeProjectRefMetadata? = nil
+    var listItemNumber: Int? = nil
 
     var orderedNodes: [NativeReaderNode] { [self] + children.flatMap(\.orderedNodes) }
     var graphemeBoundariesUTF16: [Int] {
@@ -172,9 +177,10 @@ struct NativeReaderDocument: Codable, Equatable {
     }
 
     static let supportedCapabilities: Set<String> = ["semantic-tree-v1", "image-layout-v1"]
+    static let maximumJSONBytes = 64 * 1024 * 1024
 
     static func decode(_ data: Data, capabilities: Set<String> = supportedCapabilities) throws -> Self {
-        guard data.count <= 32 * 1024 * 1024 else { throw NativeReaderContractError.invalidDocument }
+        guard data.count <= maximumJSONBytes else { throw NativeReaderContractError.invalidDocument }
         let document = try JSONDecoder().decode(Self.self, from: data)
         try document.validate(capabilities: capabilities)
         return document
@@ -229,6 +235,9 @@ struct NativeReaderDocument: Codable, Equatable {
                 try layout.validate()
             }
             if let level = node.headingLevel, level < 1 { throw NativeReaderContractError.invalidDocument }
+            if let number = node.listItemNumber, node.kind != .group || number < Int32.min || number > Int32.max {
+                throw NativeReaderContractError.invalidDocument
+            }
             if let cell = node.cell, !(1...1000).contains(cell.rowSpan) || !(1...1000).contains(cell.columnSpan) {
                 throw NativeReaderContractError.invalidDocument
             }
@@ -241,7 +250,8 @@ struct NativeReaderDocument: Codable, Equatable {
                 }
             }
             for anchor in node.anchors {
-                guard token(anchor), anchors.insert(anchor).inserted else { throw NativeReaderContractError.invalidDocument }
+                let valid = token(anchor) || anchor.hasPrefix("mark:") && token(String(anchor.dropFirst(5)))
+                guard valid, anchors.insert(anchor).inserted else { throw NativeReaderContractError.invalidDocument }
             }
             targets += node.annotationTargets
             if [.text, .math, .image, .break].contains(node.kind) {
@@ -306,7 +316,7 @@ extension NativeImageLayout {
 
 extension NativeReaderNode {
     init(from decoder: Decoder) throws {
-        try nativeWireKeys(decoder, allowed: ["id", "sectionID", "kind", "canonicalText", "displayText", "rangeUTF16", "offsets", "children", "anchors", "annotationTargets", "visible", "mapping", "passageKey", "direction", "language", "headingLevel", "math", "cell", "link", "assetID", "alt", "imageLayout", "projectRef"])
+        try nativeWireKeys(decoder, allowed: ["id", "sectionID", "kind", "canonicalText", "displayText", "rangeUTF16", "offsets", "children", "anchors", "annotationTargets", "visible", "mapping", "passageKey", "direction", "language", "headingLevel", "math", "cell", "link", "assetID", "alt", "imageLayout", "projectRef", "listItemNumber"])
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
         sectionID = try c.decode(String.self, forKey: .sectionID)
@@ -331,6 +341,7 @@ extension NativeReaderNode {
         alt = try c.decodeIfPresent(String.self, forKey: .alt)
         imageLayout = c.contains(.imageLayout) ? try c.decode(NativeImageLayout.self, forKey: .imageLayout) : nil
         projectRef = try c.decodeIfPresent(NativeProjectRefMetadata.self, forKey: .projectRef)
+        listItemNumber = try c.decodeIfPresent(Int.self, forKey: .listItemNumber)
     }
 }
 

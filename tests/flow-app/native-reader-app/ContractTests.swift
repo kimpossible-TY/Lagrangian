@@ -15,8 +15,23 @@ func reject(_ expected: NativeReaderContractError, _ body: () throws -> Void) th
 
 @main struct ContractTests {
     @MainActor static func main() throws {
+        if CommandLine.arguments[1] == "--roundtrip" {
+            let document = try NativeReaderDocument.decode(Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[2])))
+            let restored = try NativeReaderDocument.decode(JSONEncoder().encode(document))
+            try require(document == restored, "imported PDE metadata Codable roundtrip")
+            let rebound = document.rebinding(generation: 42)
+            try require(rebound.blocks == document.blocks, "imported PDE metadata generation rebinding")
+            print("ok")
+            return
+        }
         let data = try Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1]))
         let document = try NativeReaderDocument.decode(data)
+        let limit = 64 * 1024 * 1024
+        var padded = data
+        padded.append(Data(repeating: 0x20, count: limit - data.count))
+        _ = try NativeReaderDocument.decode(padded)
+        padded.append(0x20)
+        try reject(.invalidDocument) { _ = try NativeReaderDocument.decode(padded) }
         let oracle = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[2]))) as! [String: Any]
         let expectedTexts = oracle["texts"] as! [String]
         try require(document.blocks.map(\.kind.rawValue) == oracle["kinds"] as! [String], "ordered kinds")
@@ -95,6 +110,14 @@ func reject(_ expected: NativeReaderContractError, _ body: () throws -> Void) th
             width: nil, height: NativeImageLength(value: 2, unit: .em), loading: .lazy, decoding: .async)
         let emSize = try heightOnly.size(naturalWidth: 24, naturalHeight: 12, fontSize: 15)
         try require(emSize.width == 60 && emSize.height == 30, "em uses current logical font")
+        let percentage = NativeImageLayout(naturalUnit: .px, placement: .inline, fit: .fill,
+            width: NativeImageLength(value: 50, unit: .percent), height: NativeImageLength(value: 100, unit: .percent), loading: nil, decoding: nil)
+        try percentage.validate()
+        let percentageSize = try percentage.size(naturalWidth: 200, naturalHeight: 80, fontSize: 20)
+        try require(percentageSize.width == 75 && percentageSize.height == 60, "bounded percentage intrinsic dimensions")
+        for value in [0.0, -1, 100.01, .infinity, .nan] {
+            try reject(.invalidDocument) { try NativeImageLength(value: value, unit: .percent).validate() }
+        }
         var legacy = try JSONSerialization.jsonObject(with: data) as! [String: Any]
         func removeLayout(_ value: [String: Any]) -> [String: Any] {
             var node = value; node.removeValue(forKey: "imageLayout")
@@ -120,7 +143,7 @@ func reject(_ expected: NativeReaderContractError, _ body: () throws -> Void) th
                     default:
                         if name == "unknown-layout" { layout["rotation"] = 90 }
                         if name == "missing-placement" { layout.removeValue(forKey: "placement") }
-                        if name == "unknown-unit" { layout["width"] = ["value": 10, "unit": "%"] }
+                        if name == "unknown-unit" { layout["width"] = ["value": 10, "unit": "vw"] }
                         if name == "zero" { layout["width"] = ["value": 0, "unit": "pt"] }
                         if name == "huge" { layout["height"] = ["value": 4097, "unit": "px"] }
                         if name == "unknown-fit" { layout["fit"] = "cover" }

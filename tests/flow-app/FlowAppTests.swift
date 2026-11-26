@@ -41,6 +41,13 @@ private struct DelayedCrossProjectProvider: NativeReaderDocumentProviding {
   }
 }
 
+private final class CompletionCounter: @unchecked Sendable {
+  private let lock = NSLock()
+  private var value = 0
+  func increment() { lock.lock(); defer { lock.unlock() }; value += 1 }
+  var count: Int { lock.lock(); defer { lock.unlock() }; return value }
+}
+
 private final class Services: ProjectControlling {
   private let lock = NSLock()
   private var running: [String: Int] = [:]
@@ -82,6 +89,142 @@ private final class BlockingStore: SettingsPersisting {
 
 private func allDescendants(of view: NSView) -> [NSView] {
   [view] + view.subviews.flatMap { allDescendants(of: $0) }
+}
+
+private func verifyOverflow(_ app: FlowApp) {
+  let items = app.overflowMenu().items
+  check(items.map(\.title) == ["미리보기 재시작", "미리보기 주소 복사", "로그 보기", "", "에디터 연결…", "", "설정 파일 보기", "사용·업데이트·복구 안내"], "unified overflow grouping")
+  check(items.compactMap(\.action) == [#selector(FlowApp.restart), #selector(FlowApp.copyPreviewAddress), #selector(FlowApp.openLogs), #selector(FlowApp.connectEditor), #selector(FlowApp.revealSettings), #selector(FlowApp.guide)], "overflow actions")
+  check(items.filter { $0.action != nil }.allSatisfy { $0.target === app }, "overflow target wiring")
+}
+
+private func verifyStatusMenu(_ app: FlowApp) {
+  let items = app.statusItem.menu!.items
+  check(items.first?.title == (app.active.map { "\($0.name) · " + (app.snapshot?.pid != nil ? "실행 중" : "중지됨") } ?? "프로젝트 없음"), "menu status summary")
+  check(items.first?.isEnabled == false && items.first?.action == nil, "status line must be disabled")
+  check(items.filter(\.isSeparatorItem).count == 4, "menu groups")
+  check(items.dropFirst().map(\.title) == [
+    "", "홈 열기", "읽기 시작", "웹 브라우저에서 열기", "오프라인 문서 열기", "",
+    app.snapshot?.pid != nil ? "미리보기 중지" : "미리보기 시작", "미리보기 재시작", "에디터 연결…", "미리보기 주소 복사", "로그 보기", "",
+    "프로젝트 설정…", "로그인 시 자동 실행", "사용·업데이트·복구 안내", "Lagrangian 정보", "", "Lagrangian 종료 (미리보기 유지)",
+  ], "Korean status menu order")
+  for (selector, key) in [(#selector(FlowApp.showWindow), "0"), (#selector(FlowApp.openPreview), "o"), (#selector(FlowApp.showSettings), ","), (#selector(FlowApp.quit), "q")] {
+    let item = items.first { $0.action == selector }
+    check(item?.keyEquivalent == key && item?.target === app, "menu shortcut/target")
+  }
+  let login = items.first { $0.action == #selector(FlowApp.toggleLogin) }!
+  check(login.title == "로그인 시 자동 실행" && login.state == (app.loginEnabled ? .on : .off), "login menu state")
+  check(app.validateMenuItem(login) == app.enabled(#selector(FlowApp.toggleLogin)), "login menu permission")
+}
+
+private func verifyMinimalHome(_ app: FlowApp, profile: Profile) {
+  let root = app.window.contentView!
+  root.layoutSubtreeIfNeeded()
+  let views = allDescendants(of: root)
+  check(app.window.titleVisibility == .hidden && app.window.titlebarAppearsTransparent, "Home chrome")
+  check(app.window.frame.size == NSSize(width: 452, height: 228), "compact Home geometry")
+  let cards = views.compactMap { $0 as? NativeDesignSurface }.filter { $0.role == .panel }
+  check(cards.count == 1 && cards[0].identifier?.rawValue == "home.noteCard", "Home needs one Note Card")
+  check(!views.contains { $0 is NSTabView }, "legacy tabs")
+  let labels = views.compactMap { $0 as? NSTextField }.filter { !$0.isHiddenOrHasHiddenAncestor }.map(\.stringValue)
+  check(!labels.contains { $0.contains(profile.root) || $0.contains(profile.url) || $0.contains("127.0.0.1") || $0.contains("https://") }, "raw Home path/address")
+  check(app.picker.toolTip == "\(profile.name)\n\(profile.path(profile.entry))", "project tooltip")
+  let buttons = views.compactMap { $0 as? NSButton }.filter { !($0 is NSPopUpButton) && !$0.isHiddenOrHasHiddenAncestor }
+  check(buttons.filter { !$0.title.isEmpty }.map(\.title) == ["읽기"], "only primary action has a text label")
+  let read = app.controls[#selector(FlowApp.openPreview)] as! NativeDesignButton
+  check(read.keyEquivalent == "\r" && read.symbolName == "book", "primary icon/Return")
+  check(allDescendants(of: cards[0]).filter { $0 is NSPopUpButton }.count == 1, "one popup")
+  for (selector, size, symbol, tooltip) in [
+    (#selector(FlowApp.addProject), CGFloat(28), "plus", "프로젝트 추가"),
+    (#selector(FlowApp.showSettings), 28, "gearshape", "프로젝트 설정 (⌘,)"),
+    (#selector(FlowApp.openExternalPreview), 32, "globe", "웹 브라우저에서 열기"),
+    (#selector(FlowApp.copyPreviewAddress), 32, "link", "미리보기 주소 복사"),
+    (#selector(FlowApp.openOffline), 32, "doc.text", "오프라인 문서 열기"),
+  ] {
+    let button = app.controls[selector] as! NativeDesignButton
+    check(button.frame.size == NSSize(width: size, height: size), "icon target dimensions")
+    check(button.designRole == .ghost && button.symbolName == symbol, "ghost SF Symbol")
+    check(button.toolTip == tooltip && button.accessibilityLabel() == tooltip, "Korean tooltip/AX")
+    check(button.target === app && button.action == selector, "icon target/action")
+    button.preferencesOverride = .init(theme: .light)
+    check(button.paint.edge.alphaComponent == 0 && button.paint.fill.alphaComponent == 0, "ghost rest paint")
+    button.mouseEntered(with: NSEvent())
+    check(button.paint.fill.alphaComponent > 0 || !button.isEnabled, "hover tint")
+    button.mouseExited(with: NSEvent())
+    button.preferencesOverride = .init(theme: .light, increasedContrast: true)
+    check(button.paint.edge.alphaComponent == 1 && button.paint.lineWidth == 1, "Increase Contrast hairline")
+    button.preferencesOverride = nil
+  }
+  check(app.overflowButton.symbolName == "ellipsis" && app.overflowButton.toolTip == "더 보기", "single overflow")
+  verifyOverflow(app)
+  for button in buttons {
+    check(root.bounds.contains(button.convert(button.bounds, to: root)), "clipped compact control")
+    for other in buttons where other !== button {
+      check(!button.convert(button.bounds, to: root).intersects(other.convert(other.bounds, to: root)), "overlapping compact controls")
+    }
+  }
+  let markFrame = app.brandMark.convert(app.brandMark.bounds, to: root)
+  check(abs(markFrame.midX - root.bounds.midX) < 0.5, "centered brand mark")
+}
+
+private actor EditorRevocationTrace {
+  var managerCalls: [[String]] = []
+  var tombstones: [String] = []
+  func manager(_ args: [String]) { managerCalls.append(args) }
+  func tombstone(_ operation: String) { tombstones.append(operation) }
+}
+
+private func verifyManagedRevocation() async throws {
+  let trace = EditorRevocationTrace()
+  let scope = String(repeating: "a", count: 64)
+  let service = ["pid": 123, "startedAt": 456]
+  let network = NativeReaderNetwork(send: { request, _ in
+    if request.url!.path.hasSuffix("api/state") {
+      return NativeReaderHTTPResponse(status: 200, headers: [:], data: try JSONSerialization.data(withJSONObject:
+        ["documentID": "doc", "service": service, "revision": "rev"]))
+    }
+    if request.url!.path.hasSuffix("api/native-document") {
+      let identity = NativeDocumentIdentity(documentID: "doc", serviceID: "reader:123:456", revision: "rev", scope: .service)
+      let node = NativeReaderNode(id: "n", sectionID: "s", kind: .text, canonicalText: "x", displayText: "x",
+        rangeUTF16: [0, 1], offsets: NativeTextOffsets("x"), children: [], anchors: [], annotationTargets: [],
+        visible: true, mapping: .unmapped, passageKey: nil, direction: nil, language: nil, headingLevel: nil,
+        math: nil, cell: nil, link: nil, assetID: nil, alt: nil)
+      let document = NativeReaderDocument(schemaVersion: 1, identity: identity, generation: 1,
+        requiredCapabilities: ["semantic-tree-v1"], blocks: [node], assets: [], diagnostics: [])
+      return NativeReaderHTTPResponse(status: 200, headers: ["content-type": "application/json", "x-native-input-id": scope], data: try JSONEncoder().encode(document))
+    }
+    let body = try JSONSerialization.jsonObject(with: request.httpBody!) as! [String: Any]
+    await trace.tombstone(body["operation"] as! String)
+    return NativeReaderHTTPResponse(status: 200, headers: ["content-type": "application/json"], data: Data("{}".utf8))
+  }, stream: { _ in AsyncThrowingStream { $0.finish() } })
+  let resolver = NativeReaderManagedResolver(attach: { args in
+    await trace.manager(args)
+    if args.contains("--native-editor-scope") {
+      return try JSONSerialization.data(withJSONObject: ["scope": scope, "requestBinding": String(repeating: "b", count: 64)])
+    }
+    if args.contains("--release-native-editor-operation") { return Data("{\"released\":true}".utf8) }
+    let operation = args[args.firstIndex(of: "--native-editor-operation")! + 1]
+    return try JSONSerialization.data(withJSONObject: ["url": "http://127.0.0.1:1234/", "documentID": "doc",
+      "service": service, "editorAttachment": "token", "nativeEditorActions": 1,
+      "nativeEditorOperation": operation, "nativeEditorScope": scope])
+  }, network: network)
+  let editor = NativeReaderManagedEditor(address: "editor", executable: "/bin/sh", ownerPID: 123,
+    controlFile: "/fixture/control", consentID: UUID())
+  let client = NativeReaderManagedClient(resolver: resolver, root: "/fixture", entry: "main.typ", editor: editor)
+  let identity = try await client.target()
+  let context = NativeReaderRequestContext(requestID: UUID(), viewID: UUID(), generation: 1, target: identity)
+  _ = try await client.document(for: context)
+  let transport = try await client.currentActions().transport
+  // Establish an editor context; the preliminary selection tombstone is excluded below.
+  try await transport.revokeEditorSelection(context: context)
+  await client.revokeEditorConsent()
+  await client.revokeEditorConsent()
+  let calls = await trace.managerCalls
+  let tombstones = await trace.tombstones
+  check(calls.filter { $0.contains("--attach") }.count == 1, "managed attach")
+  check(calls.filter { $0.contains("--native-editor-scope") }.count == 1, "scope lookup repeated")
+  check(calls.filter { $0.contains("--release-native-editor-operation") }.count == 1, "editor lease cleanup repeated")
+  check(tombstones == ["revoke", "close"], "managed editor tombstone repeated")
 }
 
 @main
@@ -127,6 +270,8 @@ struct FlowAppTests {
     delegate.settings = Settings(selectedID: profile.id, profiles: [profile, other])
     try store.save(delegate.settings)
     delegate.buildWindow()
+    check(delegate.window.frame.size == NSSize(width: 452, height: 228), "initial Home frame before session snapshot")
+    check(delegate.status.isHiddenOrHasHiddenAncestor, "initial Home banner must be collapsed")
     delegate.populate()
     defer {
       delegate.session.dispose()
@@ -379,7 +524,7 @@ struct FlowAppTests {
       let empty = root.appendingPathComponent("empty")
       try manager.createDirectory(at: empty, withIntermediateDirectories: true)
       delegate.registerProjectSelection(at: empty)
-      check(delegate.snapshot?.phase == .failed && delegate.detail.stringValue.contains(".typ"), "empty directory failure missing")
+      check(delegate.snapshot?.phase == .failed && delegate.snapshot?.detail.contains(".typ") == true, "empty directory failure missing")
       let afterEmpty = try store.load()
       check(sameSettings(afterEmpty, beforeCancel) && sameSettings(delegate.settings, beforeCancel), "empty directory changed settings")
 
@@ -418,11 +563,12 @@ struct FlowAppTests {
       waitUntil("read requested a document") { probes.count == 1 }
       check(opens.isEmpty, "browser opened before document was ready")
       check(!delegate.controls[#selector(FlowApp.openPreview)]!.isEnabled, "duplicate read enabled")
-      check(delegate.controls[#selector(FlowApp.stop)]!.isEnabled, "stop unavailable while reading")
+      check(!delegate.serviceToggleButton.isEnabled && delegate.serviceToggleButton.symbolName == "arrow.triangle.2.circlepath", "busy service slot must be disabled")
       check(delegate.picker.isEnabled, "project switch unavailable while reading")
       probes[0](.ready)
       waitUntil("browser opened after readiness") { opens.count == 1 }
-      check(delegate.status.stringValue.contains("준비"), "missing ready state")
+      check(delegate.brandMark.phase == .completed && delegate.status.isHiddenOrHasHiddenAncestor,
+            "ready state must use brand status and collapse the banner")
       check(services.actions == ["start"], "read created duplicate commands")
     case "switch":
       delegate.openPreview()
@@ -449,7 +595,7 @@ struct FlowAppTests {
       delegate.fields["port"]!.stringValue = "invalid"
       delegate.openPreview()
       check(delegate.snapshot?.phase == .failed, "invalid configuration not shown inline")
-      check(delegate.detail.stringValue.contains("포트"), "failure cause missing")
+      check(delegate.snapshot!.detail.contains("포트"), "failure cause missing")
       check(delegate.controls[#selector(FlowApp.openPreview)]!.title == "다시 읽기", "retry missing")
       check(services.actions.isEmpty, "invalid settings changed service")
       delegate.fields["port"]!.stringValue = String(profile.port)
@@ -457,7 +603,7 @@ struct FlowAppTests {
       waitUntil("retry requested document") { !probes.isEmpty }
       probes.last?(.failed("컴파일 실패 테스트"))
       waitUntil("compile failure visible") { delegate.snapshot?.phase == .failed }
-      check(delegate.detail.stringValue.contains("컴파일 실패"), "compile failure cause lost")
+      check(delegate.snapshot!.detail.contains("컴파일 실패"), "compile failure cause lost")
       check(opens.isEmpty, "failed document opened")
     case "sleep-save":
       storage.blocked = true
@@ -493,76 +639,190 @@ struct FlowAppTests {
       RunLoop.current.run(until: Date().addingTimeInterval(0.02))
       check(sleepEvents == [true, false], "disposed lifecycle observer fired")
     case "minimal-home-layout":
-      let homeRoot = delegate.window.contentView!
-      let views = allDescendants(of: homeRoot)
-      check(!views.contains { $0 is NSTabView }, "legacy NSTabView still present on home")
-      check(views.contains { $0 is NativeBrandMarkView }, "brand mark missing on home")
-      let labels = views.compactMap { ($0 as? NSTextField)?.stringValue }
-      check(labels.contains(LagrangianIdentity.appName), "Lagrangian title missing on home")
-      check(!labels.contains { $0.contains("한 흐름으로") }, "legacy subtitle still present on home")
-      let buttonTitles = views.compactMap { ($0 as? NSButton)?.title }
-      check(!buttonTitles.contains("설정 저장"), "save button must not exist on home")
-      check(!buttonTitles.contains("설정 파일 보기"), "reveal settings button must not exist on home")
-      check(views.contains { $0.identifier?.rawValue == "home.addProject" }, "top-right add button missing")
-      check(views.contains { $0.identifier?.rawValue == "home.openSettings" }, "top-right gear button missing")
-      check(delegate.pathCaption.lineBreakMode == .byTruncatingHead, "path caption must truncate head")
-      check(delegate.pathCaption.stringValue == profile.path(profile.entry), "path caption mismatch")
-      check(delegate.login.title == "로그인 시 앱 열기", "bottom-left login label mismatch")
-      check(delegate.settingsFooterButton.title == "프로젝트 설정…", "bottom-right settings link mismatch")
-      let projectCard = views.first { $0.identifier?.rawValue == "home.projectCard" }!
-      let cardButtons = allDescendants(of: projectCard).compactMap { ($0 is NSPopUpButton) ? nil : ($0 as? NSButton) }.map(\.title)
-      check(cardButtons == ["읽기 시작", "오프라인 문서", "•••"], "project card must have exactly 3 action controls")
-      check(allDescendants(of: projectCard).compactMap { $0 as? NSPopUpButton }.count == 1, "project card must have one project selector")
-      let projectMenu = delegate.projectOverflowMenu()
-      let projectMenuSelectors = projectMenu.items.compactMap(\.action)
-      check(projectMenuSelectors.contains(#selector(FlowApp.copyURL)), "project overflow missing copyURL")
-      check(projectMenuSelectors.contains(#selector(FlowApp.revealSettings)), "project overflow missing revealSettings")
-      check(projectMenuSelectors.contains(#selector(FlowApp.addProject)), "project overflow missing addProject")
-      delegate.window.setContentSize(NSSize(width: 640, height: 480))
-      homeRoot.layoutSubtreeIfNeeded()
-      let visibleButtons = views.compactMap { $0 as? NSButton }.filter { !$0.isHidden }
-      for button in visibleButtons {
-        let frame = button.convert(button.bounds, to: homeRoot)
-        check(homeRoot.bounds.contains(frame), "control clipped at 640px width: \(button.identifier?.rawValue ?? button.title)")
+      verifyMinimalHome(delegate, profile: profile)
+      var managedTestFinished = false
+      var managedTestError: Error?
+      Task { @MainActor in
+        do { try await verifyManagedRevocation() } catch { managedTestError = error }
+        managedTestFinished = true
       }
-      for i in 0..<visibleButtons.count {
-        for j in (i + 1)..<visibleButtons.count {
-          let a = visibleButtons[i].convert(visibleButtons[i].bounds, to: homeRoot)
-          let b = visibleButtons[j].convert(visibleButtons[j].bounds, to: homeRoot)
-          check(!a.intersects(b), "controls overlap at 640px width")
-        }
+      waitUntil("managed revocation test") { managedTestFinished }
+      check(managedTestError == nil, "managed revocation fixture failed: \(String(describing: managedTestError))")
+      delegate.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+      defer { NSStatusBar.system.removeStatusItem(delegate.statusItem) }
+      delegate.buildMenu()
+      delegate.render(delegate.snapshot!)
+      check(delegate.statusItem.button?.title == "", "menu bar title must be empty")
+      check(delegate.statusItem.button?.image?.isTemplate == true, "menu bar must use template brand image")
+      check(delegate.statusItem.button?.image?.size == NSSize(width: 18, height: 18), "menu bar image size")
+      verifyStatusMenu(delegate)
+      let close = NSApp.windowsMenu?.items.first { $0.action == #selector(NSWindow.performClose(_:)) }
+      check(close?.title == "창 닫기" && close?.keyEquivalent == "w", "standard Window close shortcut missing")
+      let original = delegate.snapshot!
+      let states: [(ReadingSessionPhase, Bool, Int?, NativeBrandMark.Phase, String)] = [
+        (.idle, false, nil, .offline, "미리보기 중지됨"),
+        (.requested, true, nil, .busy, "준비 중"),
+        (.running, true, 712, .reconnecting, "준비 중"),
+        (.ready, false, 712, .completed, "미리보기 실행 중"),
+        (.failed, false, 712, .error, "오류"),
+        (.sleeping, false, nil, .held, "미리보기 중지됨"),
+      ]
+      var images = Set<Data>()
+      for (phase, busy, pid, brand, tooltip) in states {
+        delegate.render(ReadingSessionSnapshot(profileID: profile.id, phase: phase,
+          message: "raw English exception /private/project https://private.invalid", detail: profile.url, pid: pid, isBusy: busy))
+        check(delegate.brandMark.phase == brand, "brand phase transition")
+        check(delegate.brandMark.showsRunningIndicator == (pid != nil), "brand running indicator")
+        check(delegate.brandMark.toolTip == "Lagrangian · " + tooltip, "brand tooltip transition")
+        check(delegate.statusItem.button?.image?.isTemplate == true, "dynamic menu bar image lost template")
+        images.insert(delegate.statusItem.button!.image!.tiffRepresentation!)
+        verifyStatusMenu(delegate)
+        let showBanner = busy || phase == .failed
+        check(delegate.window.frame.size == NSSize(width: 452, height: showBanner ? 272 : 228), "banner-only window expansion")
+        check(delegate.status.isHiddenOrHasHiddenAncestor != showBanner, "banner visibility")
+        check(!delegate.status.stringValue.contains("raw English") && !delegate.status.stringValue.contains(profile.url), "Home leaked diagnostic text")
+        check(delegate.controls[#selector(FlowApp.openLogs)]!.isHidden == (phase != .failed), "inline log action only on error")
       }
+      check(images.count >= 4, "menu bar status cues must produce different images")
+      delegate.render(original)
+      delegate.settings = Settings(); delegate.populate()
+      check(delegate.brandMark.phase == .idle && delegate.brandMark.toolTip == "Lagrangian · 프로젝트 없음", "empty project identity")
+      verifyStatusMenu(delegate)
     case "service-card-states":
-      var openedLinks: [URL] = []
-      delegate.openExternalURL = { url in openedLinks.append(url); return true }
-      let startBtn = delegate.controls[#selector(FlowApp.start)]!
-      let logsBtn = delegate.controls[#selector(FlowApp.openLogs)]!
-      let extBtn = delegate.controls[#selector(FlowApp.openExternalPreview)]!
-      let stopBtn = delegate.controls[#selector(FlowApp.stop)]!
-      check(delegate.serviceStatusLabel.stringValue == "프리뷰 서비스 · 중지됨", "stopped status label mismatch")
-      check(!delegate.serviceAddressLabel.isHidden && delegate.serviceAddressLabel.stringValue == "127.0.0.1:23625", "stopped address text mismatch")
-      check(delegate.serviceAddressLink.isHidden, "stopped state must not show clickable address link")
-      check(!startBtn.isHidden && !logsBtn.isHidden, "stopped state must show start and logs")
-      check(extBtn.isHidden && stopBtn.isHidden && delegate.serviceOverflowButton.isHidden, "stopped state must hide running-only controls")
-
-      startBtn.performClick(nil)
+      let slot = delegate.serviceToggleButton
+      let external = delegate.controls[#selector(FlowApp.openExternalPreview)]!
+      let copy = delegate.controls[#selector(FlowApp.copyPreviewAddress)] as! NativeDesignButton
+      check(slot.action == #selector(FlowApp.start) && slot.symbolName == "play.fill" && slot.isEnabled, "stopped slot")
+      check(!external.isEnabled && !copy.isEnabled && !delegate.overflowButton.isHidden, "stopped dock availability")
+      let stoppedCopy = FlowApp(environment: environment, isolated: true, fixture: root.appendingPathComponent("fixture.json"))
+      stoppedCopy.settings = delegate.settings
+      check(NSApp.sendAction(#selector(FlowApp.copyURL), to: stoppedCopy, from: nil), "copyURL selector")
+      check(NSPasteboard(name: FlowApp.isolatedCopyBoard(home: environment.userHome)).string(forType: .string) == profile.url, "stopped fixture copies to isolated board")
+      slot.performClick(nil)
       waitUntil("service started probe") { probes.count == 1 }
+      check(!slot.isEnabled && slot.symbolName == "arrow.triangle.2.circlepath", "busy slot")
       probes[0](.ready)
       waitUntil("service running settled") { delegate.snapshot?.phase == .ready && !delegate.snapshot!.isBusy }
-      check(delegate.serviceStatusLabel.stringValue == "프리뷰 서비스 · 실행 중", "running status label mismatch")
-      check(delegate.serviceAddressLabel.isHidden, "running state must hide static address label")
-      check(!delegate.serviceAddressLink.isHidden && delegate.serviceAddressLink.title == "127.0.0.1:23625", "running address link mismatch")
-      check(startBtn.isHidden && logsBtn.isHidden, "running state must hide stopped-only controls")
-      check(!extBtn.isHidden && !stopBtn.isHidden && !delegate.serviceOverflowButton.isHidden, "running state must show external reader, stop, and overflow")
-      let serviceMenu = delegate.serviceOverflowMenu()
-      let serviceSelectors = serviceMenu.items.compactMap(\.action)
-      check(serviceSelectors == [#selector(FlowApp.restart), #selector(FlowApp.copyURL), #selector(FlowApp.openLogs)], "service overflow menu mismatch")
-      delegate.serviceAddressLink.performClick(nil)
-      check(openedLinks.map(\.absoluteString) == [profile.url], "address link did not open project URL")
-
-      stopBtn.performClick(nil)
+      check(slot.action == #selector(FlowApp.stop) && slot.symbolName == "stop.fill" && slot.showsRunningIndicator, "running slot")
+      check(external.isEnabled && copy.isEnabled, "running dock availability")
+      check(delegate.brandMark.phase == .completed && delegate.brandMark.showsRunningIndicator, "running header")
+      verifyOverflow(delegate)
+      let isolatedCopy = FlowApp(environment: environment, isolated: true, devIsolatedServicePreview: true)
+      isolatedCopy.settings = delegate.settings; isolatedCopy.buildWindow(); isolatedCopy.populate()
+      defer { isolatedCopy.session.dispose(); isolatedCopy.settingsWindow?.close(); isolatedCopy.window.close() }
+      isolatedCopy.render(delegate.snapshot!)
+      let privateCopy = isolatedCopy.controls[#selector(FlowApp.copyPreviewAddress)] as! NativeDesignButton
+      privateCopy.performClick(nil)
+      check(privateCopy.symbolName == "checkmark" && privateCopy.toolTip == "미리보기 주소 복사됨", "copy confirmation missing")
+      check(NSPasteboard(name: FlowApp.isolatedCopyBoard(home: environment.userHome)).string(forType: .string) == profile.url, "copy address effect")
+      waitUntil("copy confirmation resets") { privateCopy.symbolName == "link" }
+      check(privateCopy.toolTip == "미리보기 주소 복사", "copy tooltip did not reset")
+      slot.performClick(nil)
       waitUntil("service returned to stopped") { delegate.snapshot?.phase == .stopped }
-      check(!startBtn.isHidden && !logsBtn.isHidden && extBtn.isHidden && stopBtn.isHidden && delegate.serviceOverflowButton.isHidden, "stop did not restore stopped card state")
+      check(slot.action == #selector(FlowApp.start) && slot.symbolName == "play.fill" && !slot.showsRunningIndicator, "stop restores slot")
+      check(!external.isEnabled && !copy.isEnabled && !delegate.overflowButton.isHidden, "stopped dock remains visible")
+      check(services.actions == ["start", "stop"], "dock actions changed lifecycle")
+      fallthrough
+    case "editor-consent-menu":
+      let revocations = CompletionCounter()
+      NativeReaderManagedClient.onRevokeEditorConsentDidFinish = { revocations.increment() }
+      defer { NativeReaderManagedClient.onRevokeEditorConsentDidFinish = nil }
+      delegate.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+      defer { NSStatusBar.system.removeStatusItem(delegate.statusItem); delegate.nativeWindow?.dispose() }
+      delegate.buildMenu()
+      let control = root.appendingPathComponent("editor-control")
+      let descriptor = root.appendingPathComponent("editor.json")
+      try Data().write(to: control)
+      try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: control.path)
+      let value: [String: Any] = ["address": "fixture", "executable": "/bin/sh", "ownerPID": ProcessInfo.processInfo.processIdentifier, "controlFile": control.path]
+      try JSONSerialization.data(withJSONObject: value).write(to: descriptor)
+      try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: descriptor.path)
+      var finished = false
+      var connected = false
+      Task { @MainActor in
+        connected = (try? await delegate.connectEditor(descriptor: descriptor, for: profile, consent: { true })) == true
+        finished = true
+      }
+      waitUntil("editor consent") { finished }
+      check(connected, "editor consent accepted")
+      var scopeRequests = 0
+      var attachRequests: [[String]] = []
+      delegate.managedResolver = NativeReaderManagedResolver(attach: { args in
+        if args.contains("--native-editor-scope") {
+          await MainActor.run { scopeRequests += 1 }
+        }
+        if args.contains("--attach") {
+          await MainActor.run { attachRequests.append(args) }
+        }
+        throw NativeReaderOperationFailure.unavailable
+      }, network: .urlSession())
+      func checkEditorMenu(_ action: Selector, _ title: String) {
+        check(delegate.overflowMenu().items.contains { $0.action == action && $0.title == title }, "overflow consent state")
+        check(delegate.statusItem.menu!.items.contains { $0.action == action && $0.title == title }, "menubar consent state")
+      }
+      checkEditorMenu(#selector(FlowApp.disconnectEditor), "에디터 연결 해제")
+      for cancelled in [false, true] {
+        if cancelled {
+          // This resolver deliberately fails every scope request; reconnect the
+          // local consent before restoring it for the second close path.
+          let failingResolver = delegate.managedResolver
+          delegate.managedResolver = nil
+          finished = false; connected = false
+          Task { @MainActor in
+            connected = (try? await delegate.connectEditor(descriptor: descriptor, for: profile, consent: { true })) == true
+            finished = true
+          }
+          waitUntil("renewed editor consent") { finished }
+          check(connected, "renewed editor consent accepted")
+          delegate.managedResolver = failingResolver
+        }
+        let beforeRead = scopeRequests
+        let cancelRead = delegate.readNative(profile, progress: { _ in })
+        checkEditorMenu(#selector(FlowApp.disconnectEditor), "에디터 연결 해제")
+        waitUntil("editor resolution") { scopeRequests > beforeRead }
+        if cancelled { cancelRead() }
+        let beforeClose = scopeRequests
+        delegate.nativeWindow!.hostWindow.window!.close()
+        waitUntil("reader consent revoked") {
+          scopeRequests > beforeClose && delegate.statusItem.menu!.items.contains { $0.action == #selector(FlowApp.connectEditor) }
+        }
+        check(scopeRequests == beforeClose + 1, "reader close revoked editor consent more than once")
+        checkEditorMenu(#selector(FlowApp.connectEditor), "에디터 연결…")
+        if !cancelled {
+          let beforeSwitchAttach = attachRequests.count
+          var switchFailed = false
+          let switchRead = delegate.readNative(other, progress: { progress in
+            if case .failed = progress { switchFailed = true }
+          })
+          waitUntil("switched reader attach completed") { attachRequests.count > beforeSwitchAttach && switchFailed }
+          waitUntil("disposed reader consent revocation completed") { revocations.count >= 2 }
+          check(scopeRequests == beforeClose + 1, "profile switch revoked closed consent again")
+          checkEditorMenu(#selector(FlowApp.connectEditor), "에디터 연결…")
+          switchRead()
+          delegate.settings.selectedID = other.id
+          let failingResolver = delegate.managedResolver
+          delegate.managedResolver = nil
+          finished = false; connected = false
+          Task { @MainActor in
+            connected = (try? await delegate.connectEditor(descriptor: descriptor, for: other, consent: { true })) == true
+            finished = true
+          }
+          waitUntil("editor reconnect after profile switch") { finished }
+          check(connected, "editor reconnect accepted")
+          check(scopeRequests == beforeClose + 1, "editor reconnect revoked closed consent again")
+          delegate.disconnectEditor()
+          checkEditorMenu(#selector(FlowApp.connectEditor), "에디터 연결…")
+          check(scopeRequests == beforeClose + 1, "editor disconnect revoked closed consent again")
+          delegate.settings.selectedID = profile.id
+          delegate.managedResolver = failingResolver
+        }
+        let beforeReopen = attachRequests.count
+        let reopen = delegate.readNative(profile, progress: { _ in })
+        waitUntil("reader reopens without editor consent") { attachRequests.count > beforeReopen }
+        check(!attachRequests.last!.contains("--native-editor-consent") && !attachRequests.last!.contains("--editor-server"), "closed reader retained editor authority")
+        checkEditorMenu(#selector(FlowApp.connectEditor), "에디터 연결…")
+        reopen()
+      }
     case "separated-settings-sheet":
       check(!delegate.isSettingsPresented, "settings sheet should start closed")
       check(delegate.enabled(#selector(FlowApp.showSettings)), "showSettings should be enabled with active project")
@@ -572,6 +832,10 @@ struct FlowAppTests {
       let browseButton = delegate.controls[#selector(FlowApp.browseRoot)]!
       guard let sheetRoot = delegate.settingsWindow?.contentView else { fatalError("settings window missing") }
       let sheetViews = allDescendants(of: sheetRoot)
+      let nameLabel = sheetViews.first { $0.identifier?.rawValue == "settings.projectName" } as! NSTextField
+      let pathLabel = sheetViews.first { $0.identifier?.rawValue == "settings.entryPath" } as! NSTextField
+      check(nameLabel.stringValue == profile.name && pathLabel.stringValue == profile.path(profile.entry), "separate Settings header fields")
+      check(pathLabel.lineBreakMode == .byTruncatingHead, "Settings path truncation")
       let homeViews = allDescendants(of: delegate.window.contentView!)
       check(!homeViews.contains(saveButton), "save button must live only in settings sheet")
       check(sheetViews.contains(saveButton) && sheetViews.contains(revealButton) && sheetViews.contains(closeButton) && sheetViews.contains(browseButton), "settings sheet controls missing")
@@ -630,12 +894,17 @@ struct FlowAppTests {
       try FileManager.default.createDirectory(at: longDir, withIntermediateDirectories: true)
       try Data("Hello".utf8).write(to: longDir.appendingPathComponent("main.typ"))
       delegate.settings.profiles[0].root = longDir.path
+      delegate.settings.profiles[0].name = String(repeating: "긴 프로젝트 이름 ", count: 30)
       delegate.populate()
       delegate.showSettings()
       check(delegate.isSettingsPresented, "reopening settings sheet failed")
       delegate.settingsStatus.stringValue = "1줄 오류 메시지: 경로 확인 필요\n2줄 오류 메시지: 프로젝트 설정을 다시 확인하세요\n3줄 오류 메시지: 포트와 진입 파일을 확인하세요"
       delegate.settingsStatus.isHidden = false
       sheetRoot.layoutSubtreeIfNeeded()
+      let nameFrame = nameLabel.convert(nameLabel.bounds, to: sheetRoot)
+      let pathFrame = pathLabel.convert(pathLabel.bounds, to: sheetRoot)
+      check(sheetRoot.bounds.contains(nameFrame) && sheetRoot.bounds.contains(pathFrame), "long Settings header clipped")
+      check(!nameFrame.intersects(pathFrame), "Settings name and entry path collide")
       check(delegate.settingsWindow!.frame.width <= 580, "settings sheet width blew up: \(delegate.settingsWindow!.frame.width)")
       check(sheetRoot.bounds.width <= 580, "settings sheet content width blew up: \(sheetRoot.bounds.width)")
       let statusFrame = delegate.settingsStatus.convert(delegate.settingsStatus.bounds, to: sheetRoot)

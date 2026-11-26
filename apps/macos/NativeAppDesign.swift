@@ -67,7 +67,10 @@ enum NativeAppDesign {
                        warning: color(dark ? 0xF2CF8C : 0x785517),
                        error: color(dark ? 0xFFB5AE : 0x9C302C))
     }
-    enum ButtonRole { case standard, primary }
+    static func sage(_ preferences: Preferences) -> NSColor {
+        color(preferences.theme == .dark ? 0xA9C6AA : 0x56765B)
+    }
+    enum ButtonRole { case standard, primary, ghost }
     struct ButtonPaint {
         let fill, ink, edge: NSColor
         let lineWidth: CGFloat
@@ -76,6 +79,12 @@ enum NativeAppDesign {
                             enabled: Bool, hovered: Bool, pressed: Bool) -> ButtonPaint {
         let p = palette(preferences)
         let dark = preferences.theme == .dark
+        if role == .ghost {
+            return ButtonPaint(fill: enabled && pressed ? p.pressed : (enabled && hovered ? p.hover : .clear),
+                               ink: enabled ? (hovered ? p.accent : p.ink) : p.disabledInk,
+                               edge: preferences.increasedContrast ? p.boundary : .clear,
+                               lineWidth: 1)
+        }
         let fill: NSColor
         if !enabled { fill = p.paper }
         else if pressed { fill = p.pressed }
@@ -131,6 +140,15 @@ final class NativeDesignButton: NSButton {
     private(set) var isHovered = false
     private var hoverArea: NSTrackingArea?
     private var observation: NativeDesignObservation?
+    private(set) var symbolName: String?
+    var showsRunningIndicator = false { didSet { needsDisplay = true } }
+    func setSymbol(_ name: String, label: String) {
+        symbolName = name
+        image = NSImage(systemSymbolName: name, accessibilityDescription: label)
+        image?.isTemplate = true
+        toolTip = label
+        setAccessibilityLabel(label)
+    }
     var preferences: NativeAppDesign.Preferences { preferencesOverride ?? .current(appearance: effectiveAppearance) }
     var paint: NativeAppDesign.ButtonPaint {
         NativeAppDesign.buttonPaint(preferences, role: designRole, enabled: isEnabled,
@@ -171,6 +189,14 @@ final class NativeDesignButton: NSButton {
     private func clearFeedback() { isHovered = false; highlight(false); needsDisplay = true }
     override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); clearFeedback() }
     override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); needsDisplay = true }
+    override func draw(_ dirtyRect: NSRect) {
+        contentTintColor = paint.ink
+        super.draw(dirtyRect)
+        if showsRunningIndicator {
+            NativeAppDesign.sage(preferences).setFill()
+            NSBezierPath(ovalIn: NSRect(x: bounds.maxX - 8, y: 2, width: 6, height: 6)).fill()
+        }
+    }
     override var focusRingMaskBounds: NSRect { bounds }
     override func drawFocusRingMask() {
         NSBezierPath(roundedRect: bounds, xRadius: NativeAppDesign.Shape.controlRadius,

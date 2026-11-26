@@ -12,7 +12,7 @@ from flow_reader.errors import RevisionChanged
 from flow_reader.services.accepted_snapshot import AcceptedSnapshot
 from flow_reader.services.source_highlight import MAX_SELECTION_SEGMENTS
 
-MAX_DOCUMENT = 32 * 1024 * 1024
+MAX_DOCUMENT = 64 * 1024 * 1024
 MAX_CHAT = 2 * 1024 * 1024
 
 
@@ -81,7 +81,7 @@ class NativeReaderService:
             result = import_accepted_document(snapshot.bundle, document_id=self.state.document_id,
                 service_id=key[2], generation=0)
             # Enforce the expanded JSON budget before retaining or publishing a candidate.
-            if len(json.dumps(result.document, ensure_ascii=False).encode()) > MAX_DOCUMENT:
+            if len(json.dumps(result.document, ensure_ascii=False, separators=(",", ":")).encode()) > MAX_DOCUMENT:
                 raise ValueError("Native document limit")
             if any(len(data) > 16 * 1024 * 1024 for data in result.assets.values()) or sum(map(len, result.assets.values())) > 64 * 1024 * 1024:
                 raise ValueError("Native asset limit")

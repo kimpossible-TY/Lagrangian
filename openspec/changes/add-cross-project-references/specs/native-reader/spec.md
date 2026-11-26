@@ -27,7 +27,7 @@ A successful cross-project jump SHALL preserve profileID, documentTitle, anchor,
 - **THEN** the oldest entries are discarded while the most recent return locations remain available
 
 ### Requirement: Explicit HTML metadata and projects.json fallback
-HTML references SHALL prefer `data-project-ref-key` and `data-project-ref-label` identity, with `data-project-ref-text` and `data-project-ref-title` display metadata. Links lacking identity SHALL use schema-1 projects.json fallback for `pdf_url#page=N`, filtered by page and display text. Resolution SHALL distinguish unique, ambiguous and unresolved targets without guessing duplicate labels. Unsupported schemas and oversized catalogs SHALL fail before adoption.
+HTML references SHALL prefer `data-project-ref-project` and `data-project-ref-label` identity, with `data-project-ref-text` and `data-project-ref-title` display metadata. Links lacking identity SHALL use schema-1 projects.json fallback for `pdf_url#page=N`, filtered by page and display text. Resolution SHALL distinguish unique, ambiguous and unresolved targets without guessing duplicate labels. Unsupported schemas and oversized catalogs SHALL fail before adoption.
 
 #### Scenario: Metadata or legacy PDF link
 - **WHEN** a link supplies data-project-ref-* identity
