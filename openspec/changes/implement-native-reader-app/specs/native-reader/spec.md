@@ -453,14 +453,14 @@ Document JSON SHALL be capped at 64 MiB. Nodes SHALL preserve validated listItem
 - **AND** invalid values or duplicate anchors reject atomically
 
 ### Requirement: Lazy viewport isolates deterministic per-object failures
-Lazy preparation SHALL bisect deterministic failures and isolate failed leaves while publishing valid siblings. NativeObjectError SHALL own the shared classification for isolation, worker splitting and viewport recovery. Transient/busy errors SHALL reach bounded backoff; the last viewport attempt SHALL isolate persistent timeout leaves. Cancelled/stale work SHALL abort without backoff or partial publication.
+Lazy preparation SHALL bisect deterministic failures and isolate failed leaves while publishing valid siblings. NativeObjectError SHALL own the shared classification for isolation, worker splitting and viewport recovery. Transient/busy errors SHALL reach bounded backoff; the last viewport attempt SHALL isolate persistent timeout leaves within the timeout isolation budget. Cancelled/stale work SHALL abort without backoff or partial publication.
 
 #### Scenario: Recover a transient multi-object viewport
 - **WHEN** timeout, worker busy, helper I/O/input/memory observation or missing runtime interrupts lazy preparation
 - **THEN** the whole prepare throws, including staged successful halves, except for timeout isolation on the last viewport attempt
 - **AND** the viewport retries each ID at most twice after the initial attempt, with delay multipliers [1, 2] (50 ms, 100 ms by default)
 - **AND** a successful retry publishes all valid siblings without recording isolated failures
-- **AND** the last allowed attempt bisects persistent timeouts, leaves only failed leaves as placeholders and publishes valid siblings; other exhausted errors keep attempted IDs as placeholders until the viewport/layout epoch resets
+- **AND** the last allowed attempt bisects persistent timeouts, leaves only failed leaves as placeholders and publishes valid siblings within the timeout isolation budget; other exhausted errors keep attempted IDs as placeholders until the viewport/layout epoch resets; timeout isolation is bounded to 2·⌈log2(max(n,2))⌉+1 timed-out provider calls per batch, and exhaustion throws, leaving attempted IDs as placeholders
 
 #### Scenario: Isolate a deterministic bad object
 - **WHEN** a multi-object prepare throws invalidGeometry, math-helper-rejected, unsupported object/SVG/raster, budget or another deterministic object error
