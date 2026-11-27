@@ -1389,8 +1389,13 @@ extension TextInteractionMain {
         let appearanceKey = try await disk.latest(ownerID: saved.ownerID)!.key
         let window = reopened.hostWindow.window!
         let contentSize = window.contentView!.bounds.size
-        window.setContentSize(NSSize(width: contentSize.width - 80, height: contentSize.height))
+        // 29235aad caps the reading column at 680–720pt. Shrink below every cap:
+        // 680 − 2·28 = 624 < 680 ≤ target for all font sizes and zooms.
+        let resizedWidth: CGFloat = 680
+        try check(contentSize.width - 56 >= 680 && resizedWidth >= window.minSize.width, "resize starts at the cap and respects minimum size")
+        window.setContentSize(NSSize(width: resizedWidth, height: contentSize.height))
         window.contentView!.layoutSubtreeIfNeeded()
+        try check((reopened.textView.bodyTextView.textContainer?.containerSize.width ?? 0) < 680, "resized column falls below every measure cap")
         try await waitFor("resized window reconfigured") {
             reopened.textView.requestedRenderKey?.width != CGFloat(appearanceKey.width) &&
                 reopened.acceptedPaintKey == reopened.textView.requestedRenderKey
