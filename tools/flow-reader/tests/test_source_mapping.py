@@ -1,6 +1,8 @@
 """Compiler-carried ranges must agree for saved context and editor navigation."""
 
 import hashlib
+from dataclasses import replace
+import gzip
 from http.server import ThreadingHTTPServer
 import json
 import os
@@ -18,6 +20,7 @@ from urllib.request import Request, urlopen
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from flow_reader.compiler.build import Project, compile_project
+from flow_reader.compiler.execution import local_compile
 from flow_reader.compiler.source_map import SourceCarriers, markup_ranges
 from flow_reader.document.passages import PassageIndex, validate_fragments
 from flow_reader.document.sections import split_document
@@ -412,6 +415,219 @@ class CompiledSourceMappingTests(unittest.TestCase):
                     "suffix": passage["text"][span["text_end"]:][:64],
                 }
         self.fail(f"No mathematical source range starts with {marker}")
+
+    def deferred_state(self, *, recovery_timeout=False, partial=False, delay=0.01):
+        source = ('#set heading(numbering: "1.")\n'
+                  '= Target <target>\n\n'
+                  'Before $alpha + beta$ see @target after.\n\n'
+                  '#figure([Figure body.], caption: [Caption.]) <figure>')
+        self.entry.write_text(source)
+        entered, release = threading.Event(), threading.Event()
+        recovery_requests = []
+        prepared_requests = []
+        document_requests = []
+        initial = True
+
+        def prepare_request(request):
+            request = replace(request, timestamp=1700000000 + len(prepared_requests), system_fonts=False)
+            prepared_requests.append(request)
+            return request
+
+        def execute(request):
+            if request.purpose == "document":
+                document_requests.append(request)
+            if request.purpose == "source-map":
+                if state.compiling and initial:
+                    raise subprocess.TimeoutExpired("typst", request.timeout)
+                if not state.compiling:
+                    self.assertEqual(request.timestamp, document_requests[-1].timestamp)
+                    self.assertEqual(request.system_fonts, document_requests[-1].system_fonts)
+                    self.assertEqual(len(prepared_requests), len(document_requests))
+                    recovery_requests.append(request)
+                    entered.set()
+                    if not release.wait(10):
+                        raise AssertionError("Recovery test did not release the compiler")
+                    if recovery_timeout:
+                        raise subprocess.TimeoutExpired("typst", request.timeout)
+            result = local_compile(request)
+            if partial and request.purpose == "source-map":
+                result = replace(result, artifact=result.artifact.replace(
+                    b"</body>", b"<p>Additional unmapped output.</p></body>"))
+            return result
+
+        execute.prepare_request = prepare_request
+        state = ReaderState(replace(self.project, execute=execute), self.work / "output", "", False,
+                            source_map_retry_delay=delay)
+        def cleanup():
+            timer = state.source_map_timer
+            state.close()
+            release.set()
+            if timer:
+                timer.join(10)
+        self.addCleanup(cleanup)
+        state.compile()
+        initial = False
+        self.assertTrue(state.report.get("contentGatePassed"), state.report)
+        self.assertEqual(state.report.get("sourceMapStatus"), "unavailable")
+        self.assertEqual(state.public()["sourceMapStatus"], "unavailable")
+        self.assertEqual(state.report["compileInputs"], {
+            "timestamp": document_requests[-1].timestamp, "systemFonts": False})
+        self.assertEqual(len(prepared_requests), len(document_requests))
+        self.assertIsNotNone(state.source_map_timer)
+        return state, entered, release, state.source_map_timer, recovery_requests
+
+    def test_deferred_source_map_restores_math_references_and_highlight_without_revision_change(self):
+        state, entered, release, timer, requests = self.deferred_state()
+        self.assertTrue(entered.wait(5))
+        # Requests can still acquire the publication lock during compilation.
+        with state.lock:
+            revision, document, bundle = state.revision, state.document, state.bundle
+        disk_before = json.loads((state.output / "report.json").read_text())
+        paragraph = next(part for part in bundle.passages if "Before" in part["text"])
+        formula = self.fragment(state, paragraph["text"].split("Before ")[1].split(" see ")[0])
+        whole = self.fragment(state, paragraph["text"])
+        self.assertEqual(state.source_text(revision, [formula])["status"], "unmapped")
+        self.assertEqual(state.source(revision, [whole])["status"], "unmapped")
+        release.set()
+        timer.join(10)
+        self.assertFalse(timer.is_alive())
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(requests[0].timeout, 180)
+        self.assertIn(state.report["sourceMapStatus"], {"verified", "partial"})
+        self.assertEqual(state.public()["sourceMapStatus"], state.report["sourceMapStatus"])
+        self.assertEqual(state.revision, revision)
+        self.assertEqual(state.document, document)
+        self.assertIsNot(state.bundle, bundle)
+        self.assertEqual(state.source_text(revision, [formula])["text"], "$alpha + beta$")
+        located = state.source(revision, [whole])
+        self.assertEqual(located["status"], "located", located)
+        self.assertEqual(located["path"], str(self.entry))
+        self.assertTrue(any(span["kind"] == "reference" for part in state.bundle.passages
+                            for span in part.get("source_ranges", [])))
+        self.assertEqual(gzip.decompress(state.compressed), document)
+        self.assertEqual(json.loads(state.manifest_json), state.bundle.manifest)
+        self.assertEqual(gzip.decompress(state.manifest_compressed), state.manifest_json)
+        self.assertEqual({key: gzip.decompress(value) for key, value in state.section_compressed.items()},
+                         state.bundle.documents)
+        disk_after = json.loads((state.output / "report.json").read_text())
+        self.assertEqual(disk_after["sourceMap"], state.report["sourceMap"])
+        self.assertEqual(disk_after["sourceNavigationMap"], state.report["sourceNavigationMap"])
+        self.assertTrue(state.report["sourceNavigationMap"])
+        self.assertEqual({key: value for key, value in disk_after.items()
+                          if key not in {"sourceMap", "sourceNavigationMap", "sourceMapStatus"}},
+                         {key: value for key, value in disk_before.items()
+                          if key not in {"sourceMap", "sourceNavigationMap", "sourceMapStatus"}})
+        self.assertEqual(state.report["contentRevision"], disk_before["revision"])
+        highlighted = state.highlight(revision, [whole])
+        self.assertEqual(highlighted["status"], "highlighted", highlighted)
+        self.assertRegex(self.entry.read_text(), r"#(?:highlighted|highlight)\[Before \$alpha \+ beta\$ see @target after\.\]")
+
+    def test_deferred_partial_source_map_restores_verified_ranges(self):
+        state, entered, release, timer, requests = self.deferred_state(partial=True)
+        self.assertTrue(entered.wait(5))
+        revision = state.revision
+        release.set()
+        timer.join(10)
+        self.assertFalse(timer.is_alive())
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(state.report["sourceMapStatus"], "partial")
+        self.assertEqual(state.public()["sourceMapStatus"], "partial")
+        formula = self.mathematics_fragment(state, self.entry.read_text(), "$alpha + beta$")
+        self.assertEqual(state.source_text(revision, [formula])["text"], "$alpha + beta$")
+        self.assertEqual(state.revision, revision)
+
+    def test_deferred_source_map_discards_edited_sources(self):
+        state, entered, release, timer, requests = self.deferred_state()
+        self.assertTrue(entered.wait(5))
+        bundle, report = state.bundle, dict(state.report)
+        disk_before = (state.output / "report.json").read_bytes()
+        self.entry.write_text(self.entry.read_text() + "\n\nNew saved paragraph.")
+        release.set()
+        timer.join(10)
+        self.assertFalse(timer.is_alive())
+        self.assertEqual(len(requests), 1)
+        self.assertIs(state.bundle, bundle)
+        self.assertEqual(state.report, report)
+        self.assertEqual((state.output / "report.json").read_bytes(), disk_before)
+
+    def test_deferred_source_map_cannot_overwrite_newer_publication(self):
+        state, entered, release, timer, requests = self.deferred_state()
+        self.assertTrue(entered.wait(5))
+        old_revision = state.revision
+        self.entry.write_text(self.entry.read_text() + "\n\nNew accepted paragraph.")
+        state.compile()
+        self.assertTrue(state.report.get("contentGatePassed"), state.report)
+        self.assertNotEqual(state.revision, old_revision)
+        bundle, report = state.bundle, dict(state.report)
+        disk_before = (state.output / "report.json").read_bytes()
+        release.set()
+        timer.join(10)
+        self.assertFalse(timer.is_alive())
+        self.assertEqual(len(requests), 1)
+        self.assertIs(state.bundle, bundle)
+        self.assertEqual(state.report, report)
+        self.assertEqual((state.output / "report.json").read_bytes(), disk_before)
+
+    def test_recompile_start_invalidates_recovery_even_if_compilation_fails(self):
+        state, entered, release, timer, requests = self.deferred_state()
+        self.assertTrue(entered.wait(5))
+        bundle, revision = state.bundle, state.revision
+        with patch("flow_reader.server.state.compile_project", side_effect=ValueError("compile failed")):
+            state.compile()
+        report = dict(state.report)
+        disk_before = (state.output / "report.json").read_bytes()
+        release.set()
+        timer.join(10)
+        self.assertFalse(timer.is_alive())
+        self.assertEqual(len(requests), 1)
+        self.assertIs(state.bundle, bundle)
+        self.assertEqual(state.revision, revision)
+        self.assertEqual(state.report, report)
+        self.assertEqual((state.output / "report.json").read_bytes(), disk_before)
+
+    def test_deferred_source_map_timeout_has_single_attempt_cap(self):
+        state, entered, release, timer, requests = self.deferred_state(recovery_timeout=True)
+        self.assertTrue(entered.wait(5))
+        release.set()
+        timer.join(10)
+        self.assertFalse(timer.is_alive())
+        self.assertEqual(state.report["sourceMapStatus"], "unavailable")
+        self.assertEqual(len(requests), 1)
+        # Publishing the same accepted revision again cannot enqueue another attempt.
+        state.load_result(state.source_stamp)
+        with state.lock:
+            state._schedule_source_map_recovery()
+        self.assertIsNone(state.source_map_timer)
+        self.assertEqual(len(state.source_map_attempted), 1)
+        self.assertEqual(len(requests), 1)
+
+    def test_close_cancels_pending_source_map_recovery(self):
+        state, entered, release, timer, requests = self.deferred_state(delay=60)
+        disk_before = (state.output / "report.json").read_bytes()
+        state.close()
+        timer.join(5)
+        self.assertFalse(timer.is_alive())
+        self.assertFalse(entered.is_set())
+        self.assertEqual(requests, [])
+        self.assertIsNone(state.source_map_timer)
+        with state.lock:
+            state._schedule_source_map_recovery()
+        self.assertIsNone(state.source_map_timer)
+        self.assertEqual((state.output / "report.json").read_bytes(), disk_before)
+
+    def test_close_discards_running_source_map_recovery(self):
+        state, entered, release, timer, requests = self.deferred_state()
+        self.assertTrue(entered.wait(5))
+        bundle, report = state.bundle, dict(state.report)
+        disk_before = (state.output / "report.json").read_bytes()
+        state.close()
+        release.set()
+        timer.join(10)
+        self.assertFalse(timer.is_alive())
+        self.assertEqual(len(requests), 1)
+        self.assertIs(state.bundle, bundle)
+        self.assertEqual(state.report, report)
+        self.assertEqual((state.output / "report.json").read_bytes(), disk_before)
 
     def test_complete_mathematics_exports_verified_typst_for_copying(self):
         source = ('Before $alpha^2 + beta$ after.\n\n'

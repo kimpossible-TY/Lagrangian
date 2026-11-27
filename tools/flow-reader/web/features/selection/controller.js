@@ -188,6 +188,18 @@ export class ReaderSelectionActions {
     if (clearResolved || hadPending || hadBatch || hadSelection) this.excerptGeneration++;
   }
 
+  syncSourceMapStatus(status) {
+    if (this.disposed || !this.manifest || this.sourceMapStatus === status) return;
+    this.sourceMapStatus = status;
+    if (status !== "verified" && status !== "partial") return;
+    this.cancelPendingExcerpts();
+    for (const [key, entry] of this.excerpts) {
+      if (entry.status !== "located") this.excerpts.delete(key);
+    }
+    if (this.selection) this.prefetch(this.copiedSelection ?? this.selection);
+    this.updateActions();
+  }
+
   isExcerptBatchCurrent(batch) {
     return (
       !this.disposed &&
@@ -512,6 +524,7 @@ export class ReaderSelectionActions {
 
   onDocument(manifest, section) {
     this.manifest = manifest;
+    this.sourceMapStatus = manifest?.sourceMapStatus;
     this.section = section;
     this.selection = null;
     this.retainedSelection = null;

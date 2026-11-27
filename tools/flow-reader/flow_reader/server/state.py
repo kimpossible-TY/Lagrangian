@@ -4,9 +4,11 @@ from dataclasses import replace
 import gzip
 import hashlib
 import json
+from pathlib import Path
+import tempfile
 import threading
 import time
-from flow_reader.compiler.build import compile_project
+from flow_reader.compiler.build import compile_document_source_map, compile_project
 from flow_reader.compiler.inputs import input_fingerprint, source_signature
 from flow_reader.compiler.project import document_identity
 from flow_reader.document.sections import split_document
@@ -28,7 +30,8 @@ from flow_reader.server.compiler_assets import CompilerAssets
 class ReaderState:
     def __init__(self, project, output, original_url, allow_incomplete, focus_file=None,
                  *, editor_server=None, nvim="nvim", change_file=None, source_history=None,
-                 browser_compiler=None, chat_provider=None, chat_data=None):
+                 browser_compiler=None, chat_provider=None, chat_data=None,
+                 source_map_retry_delay=2.0):
         self.project = project
         self.output = output
         self.original_url = original_url
@@ -52,6 +55,10 @@ class ReaderState:
         self.compressed = None
         self.revision = None
         self.compiling = False
+        self.closed = False
+        self.source_map_retry_delay = source_map_retry_delay
+        self.source_map_timer = None
+        self.source_map_attempted = set()
         self.source_stamp = None
         self.renderer = DynamicRenderer(self)
         self.selection = SelectionActions(self)
@@ -83,6 +90,20 @@ class ReaderState:
         except (OSError, ValueError):
             pass
 
+    def _build_publication_payload(self, document, revision, source_map,
+                                   source_navigation_map, dependencies):
+        """Build identical transport payloads for initial and recovered mappings."""
+        bundle = split_document(document.decode(), revision, source_map=source_map,
+                                source_navigation_map=source_navigation_map)
+        bundle.manifest["documentID"] = self.document_id
+        bundle.manifest["service"] = self.focus.service
+        edit_stamp = self.shared_edit.stamp()
+        bundle.manifest["lastChange"] = self.shared_change(bundle, dependencies)
+        compressed = gzip.compress(document)
+        sections = {key: gzip.compress(value) for key, value in bundle.documents.items()}
+        manifest = json.dumps(bundle.manifest, ensure_ascii=False).encode()
+        return bundle, edit_stamp, compressed, sections, manifest, gzip.compress(manifest)
+
     def load_result(self, source_stamp):
         report = json.loads((self.output / "report.json").read_text())
         accepted = report["exitCode"] == 0 and (report["contentGatePassed"] or self.allow_incomplete)
@@ -93,10 +114,6 @@ class ReaderState:
             report["revision"] = hashlib.sha256(
                 (report["revision"] + json.dumps(source_stamp)).encode()).hexdigest()
             document = (self.output / "document.html").read_bytes()
-            bundle = split_document(document.decode(), report["revision"], source_map=report.get("sourceMap"),
-                                    source_navigation_map=report.get("sourceNavigationMap"))
-            bundle.manifest["documentID"] = self.document_id
-            bundle.manifest["service"] = self.focus.service
             inputs = input_fingerprint(self.project, self.dependencies)
             if source_stamp != source_signature(self.project, self.dependencies):
                 raise ValueError("Sources changed before Reader publication")
@@ -105,16 +122,14 @@ class ReaderState:
                 if source_stamp != source_signature(self.project, self.dependencies):
                     raise ValueError("Sources changed before Reader history registration")
                 self.source_history.seed(sources)
-            edit_stamp = self.shared_edit.stamp()
-            change = self.shared_change(bundle, self.dependencies)
+            (bundle, edit_stamp, compressed, section_compressed,
+             manifest_json, manifest_compressed) = self._build_publication_payload(
+                document, report["revision"], report.get("sourceMap"),
+                report.get("sourceNavigationMap"), self.dependencies)
             if source_stamp != source_signature(self.project, self.dependencies):
                 raise ValueError("Sources changed before Reader navigation publication")
-            bundle.manifest["lastChange"] = change
-            compressed = gzip.compress(document)
-            section_compressed = {key: gzip.compress(value) for key, value in bundle.documents.items()}
-            manifest_json = json.dumps(bundle.manifest, ensure_ascii=False).encode()
-            manifest_compressed = gzip.compress(manifest_json)
         with self.lock:
+            self._cancel_source_map_recovery()
             self.report = report
             if accepted:
                 self.document = document
@@ -138,9 +153,86 @@ class ReaderState:
                 if self.compiler_pool:
                     self.compiler_pool.record(executor="publication", purpose="document", status="published",
                                               revision=self.revision[:12])
+                self._schedule_source_map_recovery()
+
+    def _cancel_source_map_recovery(self):
+        """Called under the publication lock; running work loses its commit token."""
+        if self.source_map_timer is not None:
+            self.source_map_timer.cancel()
+            self.source_map_timer = None
+
+    def _schedule_source_map_recovery(self):
+        """Schedule once reading can use the accepted document, under self.lock."""
+        key = (self.revision, self.source_stamp)
+        if (self.closed or self.compiling or not self.bundle or self.source_map_timer is not None
+                or self.report.get("sourceMapStatus") != "unavailable"
+                or key in self.source_map_attempted):
+            return
+        timer = threading.Timer(self.source_map_retry_delay, self._recover_source_map, args=(key,))
+        timer.daemon = True
+        self.source_map_timer = timer
+        timer.start()
+
+    def _recover_source_map(self, key):
+        timer = threading.current_thread()
+        try:
+            with self.lock:
+                if (self.closed or self.source_map_timer is not timer
+                        or key != (self.revision, self.source_stamp)):
+                    return
+                snapshot = AcceptedSnapshot.capture(self, key[0])
+                if snapshot is None or not snapshot.current(self):
+                    return
+                self.source_map_attempted.add(key)
+                document, report = self.document, dict(self.report)
+            frozen = report.get("compileInputs", {})
+            if frozen.get("timestamp") is None or not isinstance(frozen.get("systemFonts"), bool):
+                return
+            # Overlay preparation, compiler execution and payload construction must
+            # not hold up requests for the already accepted document.
+            disk_report = json.loads((self.output / "report.json").read_text())
+            recovered = compile_document_source_map(
+                self.project, self.output, snapshot.dependencies, document.decode(),
+                timestamp=frozen["timestamp"], system_fonts=frozen["systemFonts"])
+            if recovered.get("sourceMapStatus") not in {"verified", "partial"}:
+                return
+            report.update(recovered)
+            disk_report.update(recovered)
+            (bundle, edit_stamp, compressed, sections,
+             manifest, manifest_compressed) = self._build_publication_payload(
+                document, snapshot.revision, report.get("sourceMap"),
+                report.get("sourceNavigationMap"), snapshot.dependencies)
+            # Preserve the on-disk report's revision/contentRevision schema. Only
+            # mapping fields change; the served revision also stays unchanged.
+            with tempfile.TemporaryDirectory(prefix="source-map-report-", dir=self.output) as temporary:
+                staged_report = Path(temporary) / "report.json"
+                staged_report.write_text(json.dumps(disk_report, ensure_ascii=False, indent=2) + "\n")
+                with self.lock:
+                    if (self.closed or self.source_map_timer is not timer
+                            or self.bundle is not snapshot.bundle or not snapshot.current(self)):
+                        return
+                    staged_report.replace(self.output / "report.json")
+                    self.report = report
+                    self.bundle = bundle
+                    self.compressed = compressed
+                    self.section_compressed = sections
+                    self.manifest_json = manifest
+                    self.manifest_compressed = manifest_compressed
+                    self.shared_edit_stamp = edit_stamp
+                    self.asset_snapshots[snapshot.revision] = bundle.assets
+        except (OSError, ValueError, RecursionError):
+            # Optional recovery never makes an accepted document unavailable.
+            pass
+        finally:
+            with self.lock:
+                if self.source_map_timer is timer:
+                    self.source_map_timer = None
 
     def compile(self):
         with self.lock:
+            if self.closed:
+                return
+            self._cancel_source_map_recovery()
             self.compiling = True
         try:
             if self.source_history:
@@ -173,6 +265,7 @@ class ReaderState:
         finally:
             with self.lock:
                 self.compiling = False
+                self._schedule_source_map_recovery()
         if self.prewarm and self.revision and self.report.get("contentGatePassed") and not self.renderer.closed:
             threading.Thread(target=self.renderer.warm, daemon=True).start()
 
@@ -215,7 +308,7 @@ class ReaderState:
         with self.lock:
             result = {key: self.report.get(key) for key in (
                 "exitCode", "contentGatePassed", "unsupported", "compilerLossWarnings",
-                "elapsedSeconds", "compiledAt",
+                "elapsedSeconds", "compiledAt", "sourceMapStatus",
             )} | {"revision": self.revision, "compiling": self.compiling,
                   "documentID": self.document_id,
                   "changeToken": (self.bundle.manifest.get("lastChange") or {}).get("token") if self.bundle else None,
@@ -241,6 +334,9 @@ class ReaderState:
 
 
     def close(self):
+        with self.lock:
+            self.closed = True
+            self._cancel_source_map_recovery()
         if self._paragraph_chat:
             self._paragraph_chat.close()
         if self.compiler_pool:

@@ -1,16 +1,19 @@
 """Execution substitution cannot bypass server acceptance or candidate validation."""
 from dataclasses import replace
+import json
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from flow_reader.compiler.build import compile_project
+from flow_reader.compiler.build import compile_document_source_map, compile_project, document_request
 from flow_reader.compiler.execution import CompileRequest, CompileResult, local_compile
 from flow_reader.compiler.project import Project
+from flow_reader.compiler.source_map import compile_source_map
 from flow_reader.services.source_highlight import paged_candidate_compiles
 
 
@@ -95,7 +98,7 @@ class ExecutionTests(unittest.TestCase):
 
     def test_document_budget_is_bounded_separately_from_interactive_work_and_source_mapping(self):
         compile_project(self.project(self.result), self.root / "output")
-        self.assertEqual([(r.purpose, r.timeout) for r in self.requests], [("document", 180), ("source-map", 60)])
+        self.assertEqual([(r.purpose, r.timeout) for r in self.requests], [("document", 180), ("source-map", 180)])
         for arguments, purpose in (({"geometry": {}}, "graphics"), ({"canvases": {}}, "canvases"),
                                    ({"decorations": {}}, "decorations")):
             self.requests.clear()
@@ -112,13 +115,64 @@ class ExecutionTests(unittest.TestCase):
         self.assertEqual(request.entry, self.root / "main.typ")
 
     def test_source_mapping_failure_keeps_base_output(self):
-        def execute(request):
-            if self.requests:
-                raise subprocess.TimeoutExpired("compiler", 60)
-            return self.result(request)
-        report = compile_project(self.project(execute), self.root / "output")
-        self.assertTrue(report["contentGatePassed"])
-        self.assertEqual(report["sourceMapStatus"], "unavailable")
+        for error in (OSError("compiler unavailable"), ValueError("invalid map"),
+                      RecursionError("nested source"), subprocess.TimeoutExpired("compiler", 180)):
+            with self.subTest(error=type(error).__name__):
+                self.requests.clear()
+                def execute(request):
+                    if request.purpose == "source-map":
+                        raise error
+                    return self.result(request)
+                report = compile_project(self.project(execute), self.root / "output")
+                self.assertTrue(report["contentGatePassed"])
+                self.assertEqual(report["sourceMapStatus"], "unavailable")
+
+    def test_deferred_source_mapping_uses_prepared_document_inputs_and_overlay(self):
+        class Executor:
+            def __init__(inner):
+                inner.prepared = []
+
+            def prepare_request(inner, request):
+                self.assertTrue((request.packages / "local/flow-reader/0.1.0/typst.toml").is_file())
+                request = replace(request, system_fonts=False, timestamp=123 + len(inner.prepared))
+                inner.prepared.append(request)
+                return request
+
+            def __call__(inner, request):
+                return self.result(request)
+
+        executor = Executor()
+        project = replace(self.project(executor), semantic_canvases=True, fonts=(Path("fonts"),))
+        output = self.root / "output"
+        with patch("flow_reader.compiler.build.document_request", wraps=document_request) as overlay, \
+                patch("flow_reader.compiler.build.compile_source_map", wraps=compile_source_map) as mapping:
+            report = compile_project(project, output)
+            self.assertEqual(overlay.call_count, 1)
+            prepared, work = mapping.call_args.args[2], mapping.call_args.args[4]
+            self.assertIs(prepared, executor.prepared[0])
+            self.assertEqual(work, prepared.packages.parent)
+            self.assertEqual(self.requests[0].packages, self.requests[1].packages)
+            frozen = json.loads((output / "report.json").read_text())["compileInputs"]
+            self.assertEqual(frozen, {"timestamp": 123, "systemFonts": False})
+            compile_document_source_map(project, output, report["dependencies"],
+                                        (output / "document.html").read_text(),
+                                        timestamp=frozen["timestamp"], system_fonts=frozen["systemFonts"])
+            self.assertEqual(overlay.call_count, 2)
+        self.assertEqual(len(executor.prepared), 1)
+        self.assertEqual([r.purpose for r in self.requests], ["document", "source-map", "source-map"])
+        for request in self.requests:
+            self.assertEqual(request.inputs, (("flow-reader", "true"), ("flow-native-labels", "true")))
+            self.assertEqual(request.source, self.requests[0].source)
+            self.assertEqual(request.fonts, (self.root / "fonts",))
+            self.assertFalse(request.system_fonts)
+            self.assertEqual(request.timestamp, 123)
+            self.assertFalse(request.packages.exists())
+
+    def test_source_mapping_overlay_preparation_failure_is_optional(self):
+        with patch("flow_reader.compiler.build.prepare_packages", side_effect=OSError("missing packages")):
+            result = compile_document_source_map(self.project(self.result), self.root / "output", (), "Hello")
+        self.assertEqual(result, {"sourceMap": {}, "sourceMapStatus": "unavailable"})
+        self.assertEqual(self.requests, [])
 
     @unittest.skipUnless(shutil.which("typst"), "Typst required")
     def test_local_executor_compiles_html_and_pdf_with_dependencies(self):

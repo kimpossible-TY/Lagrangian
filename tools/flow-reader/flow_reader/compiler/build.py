@@ -2,6 +2,7 @@
 from __future__ import annotations
 import argparse
 from collections import Counter
+from contextlib import contextmanager
 import hashlib
 import json
 from pathlib import Path
@@ -16,16 +17,16 @@ from flow_reader.compiler.source_map import compile_source_map
 from flow_reader.resources import READER_ROOT as HERE
 
 
-def compile_project(project: Project, output: Path, *, geometry: dict | None = None,
-                    canvases: dict | None = None, decorations: dict | None = None,
-                    map_sources: bool = True) -> dict:
+@contextmanager
+def document_request(project: Project, output: Path, *, geometry=None, canvases=None,
+                     decorations=None, timestamp=None, system_fonts=None):
+    """Own the prepared HTML request and its temporary package overlay lifetime."""
     root = project.root.resolve()
     entry = project.relative_entry()
     output.mkdir(parents=True, exist_ok=True)
     wrapper = ('#import "@local/flow-reader:0.1.0": apply-reader\n'
                '#show: apply-reader\n'
                f'#include {json.dumps("/" + entry, ensure_ascii=False)}\n')
-    started = time.monotonic()
     # The temporary package overlay lives beside the result, outside the source.
     with tempfile.TemporaryDirectory(prefix="compile-", dir=output) as temporary:
         work = Path(temporary)
@@ -42,10 +43,38 @@ def compile_project(project: Project, output: Path, *, geometry: dict | None = N
         request = CompileRequest(
             compiler=project.compiler, root=root, packages=work / "packages", target="html",
             source=wrapper, fonts=tuple((root / font).resolve() for font in project.fonts),
+            timestamp=timestamp if timestamp is not None else int(time.time()),
+            system_fonts=True if system_fonts is None else system_fonts,
             inputs=tuple(inputs), purpose=purpose, timeout=180 if purpose == "document" else 90)
         prepare_request = getattr(project.execute, "prepare_request", None)
-        if callable(prepare_request):
+        if timestamp is None and system_fonts is None and callable(prepare_request):
             request = prepare_request(request)
+        yield request, work
+
+
+def compile_document_source_map(project: Project, output: Path, dependencies, baseline: str, *,
+                                request=None, work=None, timestamp=None, system_fonts=None) -> dict:
+    """Compile optional correspondence with the same inputs as an ordinary document."""
+    try:
+        if request is not None:
+            if work is None:
+                raise ValueError("A prepared request needs its live work directory")
+            return compile_source_map(project, dependencies, request, baseline, work)
+        with document_request(project, output, timestamp=timestamp,
+                              system_fonts=system_fonts) as (request, work):
+            return compile_source_map(project, dependencies, request, baseline, work)
+    except (OSError, ValueError, RecursionError, subprocess.TimeoutExpired):
+        return {"sourceMap": {}, "sourceMapStatus": "unavailable"}
+
+
+def compile_project(project: Project, output: Path, *, geometry: dict | None = None,
+                    canvases: dict | None = None, decorations: dict | None = None,
+                    map_sources: bool = True) -> dict:
+    root = project.root.resolve()
+    entry = project.relative_entry()
+    started = time.monotonic()
+    with document_request(project, output, geometry=geometry, canvases=canvases,
+                          decorations=decorations) as (request, work):
         result = project.execute(request)
         if result.returncode == 0 and result.executor == "browser":
             retry = getattr(project.execute, "fallback_after_rejection", None)
@@ -63,6 +92,7 @@ def compile_project(project: Project, output: Path, *, geometry: dict | None = N
             "root": str(root),
             "entry": entry,
             "compiler": project.compiler,
+            "compileInputs": {"timestamp": request.timestamp, "systemFonts": request.system_fonts},
             "exitCode": result.returncode,
             "elapsedSeconds": round(time.monotonic() - started, 3),
             "compiledAt": time.time(),
@@ -92,10 +122,8 @@ def compile_project(project: Project, output: Path, *, geometry: dict | None = N
             report.update(audit)
             if map_sources and report["contentGatePassed"] and all(
                     value is None for value in (geometry, canvases, decorations)):
-                try:
-                    report.update(compile_source_map(project, dependencies, request, content, work))
-                except (OSError, ValueError, RecursionError, subprocess.TimeoutExpired):
-                    report.update(sourceMap={}, sourceMapStatus="unavailable")
+                report.update(compile_document_source_map(project, output, dependencies, content,
+                                                          request=request, work=work))
             report["revision"] = hashlib.sha256(content.encode()).hexdigest()
             (work / "document.html").replace(output / "document.html")
         else:
