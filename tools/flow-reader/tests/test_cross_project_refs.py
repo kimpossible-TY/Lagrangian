@@ -1,5 +1,6 @@
 """Swift-compatible catalog semantics and read-only real HTTP preview contracts."""
 from copy import deepcopy
+from concurrent.futures import ThreadPoolExecutor
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 import json
@@ -21,6 +22,7 @@ from flow_reader.document.sections import split_document
 from flow_reader.server.http import handler_for
 from flow_reader.server.routing import handler_for_reader, peer_registry
 from flow_reader.server.state import ReaderState
+from flow_reader.server import native_reader
 from flow_reader.services.cross_project_refs import (
     CrossProjectCatalog, CrossProjectPreviewService, MAX_CATALOG_BYTES,
     extract_snippet, preview_query, target_url,
@@ -73,6 +75,25 @@ class Fixture(unittest.TestCase):
 class CatalogTests(Fixture):
     def load(self):
         return CrossProjectCatalog.load(self.packages)
+
+    def test_shared_swift_resolution_and_snippets(self):
+        fixture = json.loads((Path(__file__).resolve().parents[3] /
+                              'tests/fixtures/cross-project-resolution.json').read_text())
+        for item in fixture['resolution']:
+            with self.subTest(name=item['name']):
+                catalog = CrossProjectCatalog(item['catalog']['projects'])
+                resolved = catalog.resolve(**item['query'])
+                documents = {p['id']: SimpleNamespace(project=SimpleNamespace(root=p['root']))
+                             for p in item['profiles']}
+                peer = (peer_registry(documents, item['profiles'])(resolved['projectKey'], resolved['projectTitle'])
+                        if resolved['status'] == 'unique' else None)
+                self.assertEqual({'status': resolved['status'], 'projectKey': resolved.get('projectKey'),
+                                  'label': resolved.get('label'),
+                                  'profileID': peer[1].split('/')[2] if peer else None}, item['expected'])
+        for item in fixture['snippets']:
+            with self.subTest(name=item['name']):
+                self.assertEqual(extract_snippet({'blocks': item['blocks']}, item['label'], item['reference_text'],
+                    max_chars=item.get('max_chars', 600), max_blocks=item.get('max_blocks', 4)), item['expected'])
 
     def test_explicit_resolution_and_ambiguity_precedence(self):
         catalog = self.load()
@@ -268,7 +289,7 @@ class SnippetTests(unittest.TestCase):
         result = extract_snippet(doc, 'theorem', 'Before')
         self.assertEqual(result, {'text': 'Theorem 1 & result\n\nProof', 'truncated': False})
         self.assertEqual(extract_snippet(doc, 'absent', '  THEOREM   1 ') , result)
-        self.assertEqual(extract_snippet(doc, doc['blocks'][2]['id']), result)
+        self.assertIsNone(extract_snippet(doc, doc['blocks'][2]['id']))
         self.assertIsNone(extract_snippet(doc, 'absent', 'missing'))
         self.assertNotIn('<strong', result['text'])
 
@@ -306,6 +327,111 @@ class SnippetTests(unittest.TestCase):
 
 
 class PreviewTests(Fixture):
+    def test_slow_import_releases_publication_and_cache_locks_and_coalesces_requests(self):
+        origin, target = self.state(), self.state('target', '<p id="theorem">Accepted</p>')
+        services = [CrossProjectPreviewService(origin, lambda *_: (target, '/d/book/')) for _ in range(6)]
+        entered, release = threading.Event(), threading.Event()
+        original = native_reader.import_accepted_document
+        def slow_import(*args, **kwargs):
+            self.assertFalse(target.lock._is_owned())
+            self.assertFalse(target.cross_project_imports.condition._is_owned())
+            self.assertTrue(target.cross_project_imports.condition.acquire(blocking=False))
+            target.cross_project_imports.condition.release()
+            entered.set()
+            if not release.wait(5):
+                raise AssertionError('Import was not released')
+            return original(*args, **kwargs)
+        with patch.object(native_reader, 'import_accepted_document', side_effect=slow_import) as load, \
+             ThreadPoolExecutor(max_workers=7) as pool:
+            futures = [pool.submit(service.preview, project_key='book', label='theorem') for service in services]
+            try:
+                self.assertTrue(entered.wait(2))
+                # A real /api/state publication read finishes while import is stalled.
+                public = pool.submit(target.public).result(timeout=2)
+                self.assertEqual(public['revision'], 'r1')
+            finally:
+                release.set()
+            self.assertTrue(all(f.result(timeout=3)['snippet'] == 'Accepted' for f in futures))
+            self.assertEqual(load.call_count, 1)
+
+    def test_revision_changed_during_import_does_not_publish_a_stale_snippet(self):
+        origin, target = self.state(), self.state('target', '<p id="theorem">Old</p>')
+        service = CrossProjectPreviewService(origin, lambda *_: (target, '/d/book/'))
+        original = native_reader.import_accepted_document
+        def publish_during_import(*args, **kwargs):
+            with target.lock:
+                target.bundle = split_document('<html><body><p id="theorem">New</p></body></html>', 'r2')
+                target.revision = 'r2'
+            return original(*args, **kwargs)
+        with patch.object(native_reader, 'import_accepted_document', side_effect=publish_during_import):
+            self.assertIsNone(service.preview(project_key='book', label='theorem')['snippet'])
+        self.assertEqual(service.preview(project_key='book', label='theorem')['snippet'], 'New')
+
+    def test_import_cache_is_per_target_and_invalidates_document_revision_and_service(self):
+        origin, target = self.state(), self.state('target', '<p id="theorem">First</p>')
+        service = CrossProjectPreviewService(origin, lambda *_: (target, '/d/book/'))
+        def preview():
+            return service.preview(project_key='book', label='theorem')['snippet']
+        with patch.object(native_reader, 'import_accepted_document', wraps=native_reader.import_accepted_document) as load:
+            self.assertEqual(preview(), 'First')
+            self.assertEqual(preview(), 'First')
+            self.assertEqual(load.call_count, 1)
+            target.bundle = split_document('<html><body><p id="theorem">Second</p></body></html>', 'r2')
+            target.revision = 'r2'
+            self.assertEqual(preview(), 'Second')
+            self.assertEqual(load.call_count, 2)
+            target.focus.service = dict(target.focus.service, startedAt=target.focus.service['startedAt'] + 1)
+            self.assertEqual(preview(), 'Second')
+            self.assertEqual(load.call_count, 3)
+            target.document_id = 'replacement-document'
+            self.assertEqual(preview(), 'Second')
+            self.assertEqual(preview(), 'Second')
+            self.assertEqual(load.call_count, 4)
+            # The cache retains only one accepted import, even across many revisions.
+            self.assertEqual(target.cross_project_imports.cached[0],
+                (target.document_id, 'r2', native_reader.service_id(target.focus.service)))
+
+    def test_catalog_parse_shared_with_state_and_signature_change_recomputes_snippet(self):
+        origin, target = self.state(), self.state('target', '<p>Theorem 1</p><h3>Stop</h3><p>Theorem 2</p>')
+        service = CrossProjectPreviewService(origin, lambda *_: (target, '/d/book/'))
+        with patch.object(CrossProjectCatalog, 'load', wraps=CrossProjectCatalog.load) as catalog_load, \
+             patch.object(native_reader, 'import_accepted_document', wraps=native_reader.import_accepted_document) as load:
+            self.assertTrue(origin.public()['viewer']['crossProject'])
+            for _ in range(3):
+                self.assertEqual(service.preview(project_key='book', label='theorem')['snippet'], 'Theorem 1')
+                self.assertTrue(origin.public()['viewer']['crossProject'])
+            self.assertEqual((catalog_load.call_count, load.call_count), (1, 1))
+            data = catalog_data()
+            data['projects']['book']['references']['theorem']['text'] = 'Theorem 2'
+            self.write_catalog(data)
+            result = service.preview(project_key='book', label='theorem')
+            self.assertEqual((result['refText'], result['snippet']), ('Theorem 2', 'Theorem 2'))
+            self.assertTrue(origin.public()['viewer']['crossProject'])
+            self.assertEqual((catalog_load.call_count, load.call_count), (2, 1))
+
+    def test_preview_reuses_native_document_and_asset_caps_before_caching(self):
+        origin, target = self.state(), self.state('target', '<p id="theorem">Accepted</p>')
+        service = CrossProjectPreviewService(origin, lambda *_: (target, '/d/book/'))
+        document = imported('<p id="theorem">Accepted</p>')
+        size = len(json.dumps(document, ensure_ascii=False, separators=(',', ':')).encode())
+        for name, budget, assets, expected in [
+            ('exact limits', size, {'a': b'a'*8, 'b': b'b'*4}, 'Accepted'),
+            ('document over cap', size-1, {}, None),
+            ('single asset over cap', size, {'a': b'a'*9}, None),
+            ('total assets over cap', size, {'a': b'a'*8, 'b': b'b'*5}, None),
+        ]:
+            with self.subTest(name=name):
+                target.focus.service = dict(target.focus.service, startedAt=target.focus.service['startedAt'] + 1)
+                candidate = SimpleNamespace(document=document, assets=assets)
+                with patch.object(native_reader, 'MAX_DOCUMENT', budget), \
+                     patch.object(native_reader, 'MAX_ASSET', 8), patch.object(native_reader, 'MAX_ASSETS', 12), \
+                     patch.object(native_reader, 'import_accepted_document', return_value=candidate) as load:
+                    for _ in range(2):
+                        result = service.preview(project_key='book', label='theorem')
+                        self.assertEqual(result['snippet'], expected)
+                        self.assertEqual(result['status'], 'unique')
+                    self.assertEqual(load.call_count, 1)
+
     def test_compiled_anchor_for_label_and_text_matches(self):
         origin = self.state()
         for html in ('<p data-flow-label="theorem">Theorem 1</p>', '<p>Theorem 1</p>'):
@@ -403,7 +529,7 @@ class PreviewTests(Fixture):
         target.bundle = split_document('<html><body><p id="theorem">Wrong revision</p></body></html>', 'r2')
         self.assertIsNone(service.preview(project_key='book', label='theorem')['snippet'])
         target.revision = 'r2'
-        with patch('flow_reader.services.cross_project_refs.import_accepted_document',
+        with patch('flow_reader.server.native_reader.import_accepted_document',
                    side_effect=ValueError('private import failure: '+str(self.root))):
             result = service.preview(project_key='book', label='theorem')
         self.assertEqual((result['status'], result['snippet'], result['targetUrl']),
@@ -414,20 +540,27 @@ class PreviewTests(Fixture):
     def test_peer_registry_aliases_explicit_precedence_and_duplicates(self):
         one, two = self.state('Book_Title'), self.state('other')
         docs = {'first': one, 'second': two}
-        lookup = peer_registry(docs, [{'id': 'first', 'title': 'Book Title'},
+        lookup = peer_registry(docs, [{'id': 'first', 'name': 'Book Title'},
                                      {'id': 'second', 'projectRefKey': 'book'}])
         self.assertIs(lookup('book', 'Book Title')[0], two)
-        self.assertIs(lookup('first', '')[0], one)
+        self.assertIsNone(lookup('first', ''))
         self.assertIs(lookup('book-title', '')[0], one)
         self.assertIsNone(lookup('other', ''))
         self.assertIsNone(peer_registry(docs, [{'id': 'first', 'projectRefKey': 'book'},
                                               {'id': 'second', 'projectRefKey': 'book'}])('book', ''))
-        self.assertIsNone(peer_registry(docs, [{'id': 'first', 'title': 'Same'},
-                                              {'id': 'second', 'title': 'Same'}])('same', ''))
+        self.assertIsNone(peer_registry(docs, [{'id': 'first', 'name': 'Same'},
+                                              {'id': 'second', 'name': 'Same'}])('same', ''))
+
+    def test_peer_registry_uses_native_parent_name_for_reader_profiles(self):
+        target = self.state('unrelated-root')
+        lookup = peer_registry({'reader': target}, [{'id': 'reader', 'parentID': 'parent', 'name': 'Book · Reader'}],
+                               [{'id': 'parent', 'name': 'Book'}])
+        self.assertEqual(lookup('book', 'Unrelated catalog title'), (target, '/d/reader/'))
+        self.assertIsNone(lookup('book-reader', 'Book'))
 
     def test_peer_registry_without_project(self):
         state = SimpleNamespace()
-        self.assertEqual(peer_registry({'book': state})('book', ''), (state, '/d/book/'))
+        self.assertIsNone(peer_registry({'book': state})('book', ''))
         lookup = peer_registry({'book': state}, [{'id': 'book', 'projectRefKey': 'book-key'}])
         self.assertEqual(lookup('book-key', ''), (state, '/d/book/'))
 
@@ -496,7 +629,8 @@ class HTTPTests(Fixture):
     def test_standalone_and_routed_preview_state_and_read_only_fallback(self):
         origin, target = self.state(), self.state('target', '<p id="theorem">Accepted theorem</p>')
         standalone = self.serve(handler_for(origin))
-        inventory = HomeInventory(FakeManager(), loaded=([], [], {'source': origin, 'book': target}))
+        inventory = HomeInventory(FakeManager(), loaded=([], [{'id': 'book', 'projectRefKey': 'book'}],
+                                                        {'source': origin, 'book': target}))
         self.addCleanup(inventory.close)
         account = HomeAccount(FakeAuth(self.root), FakeProvider())
         routed = self.serve(handler_for_reader({'source': origin, 'book': target}, inventory, account, capability='proof'))

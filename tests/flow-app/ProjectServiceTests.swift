@@ -291,6 +291,88 @@ private func testCatalog(_ root: URL, _ profile: Profile) throws {
               "Empty catalog keys must never match unconfigured profiles")
 }
 
+private struct CrossProjectFixture: Decodable {
+  struct Catalog: Decodable { let projects: [String: CrossProjectCatalogProject] }
+  struct LocalProfile: Decodable {
+    let id, name, root: String
+    let projectRefKey: String?
+    var profile: Profile {
+      Profile(id: id, name: name, root: root, entry: "main.typ", fonts: [], packages: "",
+              port: 24650, publicURL: "", label: "fixture", projectRefKey: projectRefKey)
+    }
+  }
+  struct Query: Decodable {
+    let project_key, label, href, link_text: String?
+  }
+  struct ExpectedTarget: Decodable {
+    let status: String
+    let projectKey, label, profileID: String?
+  }
+  struct Resolution: Decodable {
+    let name: String
+    let catalog: Catalog
+    let profiles: [LocalProfile]
+    let query: Query
+    let expected: ExpectedTarget
+  }
+  struct Node: Decodable {
+    let id, sectionID, canonicalText, displayText: String
+    let kind: NativeReaderNode.Kind
+    let anchors: [String]
+    let children: [Node]
+    var native: NativeReaderNode {
+      NativeReaderNode(id: id, sectionID: sectionID, kind: kind, canonicalText: canonicalText,
+        displayText: displayText, rangeUTF16: [0, canonicalText.utf16.count], offsets: NativeTextOffsets(canonicalText),
+        children: children.map(\.native), anchors: anchors, annotationTargets: [], visible: true, mapping: .unmapped,
+        passageKey: nil, direction: nil, language: nil, headingLevel: nil, math: nil, cell: nil, link: nil, assetID: nil, alt: nil)
+    }
+  }
+  struct Snippet: Decodable {
+    struct Expected: Decodable { let text: String; let truncated: Bool }
+    let name: String
+    let blocks: [Node]
+    let label, reference_text: String?
+    let max_chars, max_blocks: Int?
+    let expected: Expected?
+  }
+  let resolution: [Resolution]
+  let snippets: [Snippet]
+}
+
+private func testSharedCrossProjectFixture(_ file: URL) throws {
+  let fixture = try JSONDecoder().decode(CrossProjectFixture.self, from: Data(contentsOf: file))
+  for item in fixture.resolution {
+    let catalog = CrossProjectCatalog(projects: item.catalog.projects)
+    let query = item.query
+    let resolution: CrossProjectResolution
+    if let key = query.project_key, let label = query.label {
+      resolution = catalog.resolve(projectKey: key, label: label)
+    } else {
+      resolution = catalog.resolve(url: query.href ?? "", linkText: query.link_text)
+    }
+    var status: String
+    var key: String?, label: String?, profileID: String?
+    switch resolution {
+    case .unique(let target):
+      status = "unique"; key = target.projectKey; label = target.label
+      profileID = catalog.matchProfile(for: target.projectKey, in: item.profiles.map(\.profile))?.id
+    case .ambiguous: status = "ambiguous"
+    case .unresolved: status = "unresolved"
+    }
+    try require(status == item.expected.status && key == item.expected.projectKey && label == item.expected.label
+                  && profileID == item.expected.profileID, "Shared resolution: \(item.name)")
+  }
+  for item in fixture.snippets {
+    let document = NativeReaderDocument(schemaVersion: 1,
+      identity: NativeDocumentIdentity(documentID: "doc", serviceID: "service", revision: "r1", scope: .fixture),
+      generation: 0, requiredCapabilities: ["semantic-tree-v1"], blocks: item.blocks.map(\.native), assets: [], diagnostics: [])
+    let result = CrossProjectSnippetExtractor.extract(from: document, label: item.label, referenceText: item.reference_text,
+      maxChars: item.max_chars ?? 600, maxBlocks: item.max_blocks ?? 4)
+    let expected = item.expected.map { CrossProjectSnippetResult(text: $0.text, truncated: $0.truncated) }
+    try require(result == expected, "Shared snippet: \(item.name)")
+  }
+}
+
 private func testNavigationStack() throws {
   var stack = CrossProjectNavigationStack()
   try require(stack.maxDepth == 64 && !stack.canGoBack && stack.backLabel == nil
@@ -345,6 +427,7 @@ enum ProjectServiceTests {
     case "directory-registration": try testDirectoryRegistration(service, settings, root, store, events)
     case "directory-failures": try testDirectoryFailures(service, settings, root, store, events)
     case "cross-project-catalog": try testCatalog(root, profile)
+    case "cross-project-shared-fixture": try testSharedCrossProjectFixture(URL(fileURLWithPath: CommandLine.arguments[2]))
     case "cross-project-stack": try testNavigationStack()
     case "select-profile", "select-invalid-profile", "select-save-failure":
       var second = profile
