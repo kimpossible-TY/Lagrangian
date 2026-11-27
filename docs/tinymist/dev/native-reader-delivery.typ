@@ -656,3 +656,9 @@ The PR #34 third review owner correction registers the following 5 paths from
 `tests/flow-app/native-reader-app/TextInteractionTests.swift`,
 `tests/flow-app/native-reader-app/test_object_transient.py`.
 Hashes are Git-derived.
+
+The PR #34 disk window resize owner correction registers the following 1 path from
+`3e5dc2616acb05f643d6c5cbb7b63e2705164ffa` →
+`2feb566d6124214c8c40136ac351b13acf98fea9`:
+`tests/flow-app/native-reader-app/TextInteractionTests.swift`.
+Hashes are Git-derived.

@@ -2543,6 +2543,17 @@
             "sha256": "15723f3e87c7f62ffb950470fb9eff4fbfbb6542ff49bb6b8ddd1dde0f8efd7e"
           }
         ]
+      },
+      {
+        "revision": "2feb566d6124214c8c40136ac351b13acf98fea9",
+        "baseRevision": "3e5dc2616acb05f643d6c5cbb7b63e2705164ffa",
+        "files": [
+          {
+            "path": "tests/flow-app/native-reader-app/TextInteractionTests.swift",
+            "baseSHA256": "ef704429ba1867c1c6406c4aeb9b5965faca92ca789062cb0463d093bb9013cd",
+            "sha256": "83f6a7e909d999b2a71aa0d457cc7d495eae55e749cb18b72f49eeb7d3eebe13"
+          }
+        ]
       }
     ]
   }
