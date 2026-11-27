@@ -18,3 +18,9 @@
 - [x] WV03I.3 Register both modules explicitly in `web/assets.json` and verify source/installed delivery and final web interactions (under 2 hours).
 
 - [x] WV03I.4 Finalize exact schemas, transition ordering/retries, peer configuration/fallback and catalog publisher responsibility, anchorless mounted jumps and oversized-label metadata-only exception, allowed-origin injection, Homepage alternative controls, existing in-document ReferenceReturn consumption and semantic holding, route identity map, file map and executable headless verification contracts (under 2 hours).
+
+## LAG-7 PR2 review corrections
+
+- [x] S1: conform to Swift-owned resolution/profile/snippet rules and verify both runtimes against the shared JSON fixture.
+- [x] S2: align implemented WV02C/WV03I scope, web/native ownership and required delivery provenance; validate both active changes strictly.
+- [x] S3: import captured accepted snapshots outside publication locks, coalesce/cache bounded imports per target and share parsed catalogs; verify concurrency, invalidation and native caps.

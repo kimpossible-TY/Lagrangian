@@ -166,8 +166,8 @@ main completion without changing generation/disposal guards or retaining the app
 
 `CrossProjectReference.swift` owns read-only CrossProjectCatalog identity/profile
 resolution, bounded CrossProjectSnippetExtractor excerpts and
-CrossProjectNavigationStack return locations. Swift remains the native production policy
-owner. WV02C adds the separate read-only web backend below; `apps/macos/`
+CrossProjectNavigationStack return locations. Swift remains the semantic owner.
+WV02C adds a conforming read-only Python web adapter below; `apps/macos/`
 is unchanged, including native session adoption and editor consent.
 `NativeCrossProjectPreviewPopover.swift` owns NativeCrossProjectPreviewView and
 its shared floating surface, icon/body activation and presentation.
@@ -438,17 +438,26 @@ configuration example is hand-authored, not claimed generator output.
 
 `server/routing.py` builds a read-only peer registry; `server/cli.py` ReaderRuntime
 injects configured profiles and mounted states into both ingress handlers.
-Explicit projectRefKey wins, then profile ID, then normalized root basename or
-project title among unconfigured profiles; duplicate matches fail closed.
+Swift-owned matching prefers exact nonempty projectRefKey, then normalized key
+against root basename or native profile name among unconfigured profiles; empty
+normalized keys and duplicate matches fail closed. IDs and catalog titles are not
+aliases. Python and Swift read `tests/fixtures/cross-project-resolution.json`.
 A match yields a mounted ReaderState and `/d/<id>/`, never an arbitrary path or
 service command. Standalone serve.py has an empty registry.
 
 `CrossProjectPreviewService` imports a target's already-accepted SectionBundle
-through canonical `import_accepted_document` while holding its publication lock.
+through canonical `import_accepted_document` outside its publication lock, after
+capturing AcceptedSnapshot and document/service identity under the lock. A
+per-target single-entry cache coalesces concurrent imports by document/revision/
+service and reuses native expanded-document/asset caps; stale results are omitted.
+CatalogAvailability shares one parsed catalog by file signature with state discovery.
 It never starts services, compiles or opens unmounted source files. Snippet
-extraction matches recursive anchors/id before normalized reference text, prefers
-display over canonical plain text, stops at section/heading boundaries and bounds
-output to 600 characters / 4 blocks, with a truncated boolean. No raw HTML is
+extraction follows Swift recursive-anchor and normalized display/canonical-text
+matching, prefers display over canonical plain text, stops at section/heading boundaries and bounds
+output to 600 grapheme clusters / 4 blocks, with a truncated boolean. Python uses
+stdlib clustering for common combining/emoji/Hangul sequences; uncommon Indic/
+prepend rules and Unicode/Foundation version differences remain documented in
+the web-viewer design and do not alter Swift behavior. No raw HTML is
 injected. Unmounted, uncompiled, compiling, failed-import or unmatched targets
 retain unique catalog metadata with `snippet: null`; targetUrl is present only
 for a safely mounted route. Exception: a resolved catalog label longer than
