@@ -106,12 +106,31 @@ private struct Failure: Error { let message: String }
                       "deterministic isolation must record only the bad node")
         }
         let badID = "object-1"
+        var calls = 0
         let result = try await NativeReaderPreparedTextObject.prepareLazy(doc.blocks, provider: { nodes in
+            calls += 1
             if nodes.contains(where: { $0.id == badID }) { throw NativeObjectError.unsupported("math-helper-timeout") }
             return values(nodes, key)
         }, isolatingTimeout: true)
         try check(result.failures == [badID] && Set(result.objects.keys) == Set(doc.blocks.map(\.id)).subtracting([badID]),
                   "last-attempt timeout isolation must record only the timing-out leaf")
+        try check(calls == 5, "one timing-out leaf in four objects must still isolate in five calls")
+    }
+    @MainActor static func timeoutBudget() async throws {
+        for (count, budget) in [(4, 5), (8, 7), (128, 15)] {
+            let doc = document(count: count)
+            var calls = 0
+            do {
+                _ = try await NativeReaderPreparedTextObject.prepareLazy(doc.blocks, provider: { _ in
+                    calls += 1
+                    throw NativeObjectError.unsupported("math-helper-timeout")
+                }, isolatingTimeout: true)
+                throw Failure(message: "all-timeout preparation returned after exhausting its budget")
+            } catch let error as NativeObjectError {
+                try check(error == .unsupported("math-helper-timeout") && calls == budget,
+                          "all-timeout preparation must stop at its logarithmic budget for \(count) objects")
+            }
+        }
     }
     @MainActor static func viewport(_ mode: String, failure: Error = NativeObjectError.unsupported("math-helper-timeout")) async throws {
         let doc = document(), store = NativeReaderDocumentStore()
@@ -151,11 +170,12 @@ private struct Failure: Error { let message: String }
             try check(batches.allSatisfy { $0 == expected } && view.preparedObjectIDs == expected,
                       "timeout must retry and publish ALL siblings without isolated failures")
         case "cap":
-            try check(calls == 9 && delays == [1, 2] && Array(batches.prefix(3)) == Array(repeating: expected, count: 3),
+            try check(delays == [1, 2] && Array(batches.prefix(3)) == Array(repeating: expected, count: 3),
                       "all-timeout cap must bisect only on the last allowed attempt")
-            try check(batches.dropFirst(3).map(\.count) == [2, 1, 1, 2, 1, 1], "all-timeout cap must reach each failed leaf once")
+            try check(batches.dropFirst(2).count == 5 && calls == 7,
+                      "last all-timeout attempt must stop within its five-call budget")
             try check(view.preparedObjectIDs.isEmpty && view.preparedObjectCost == 0,
-                      "retry exhaustion must leave placeholders")
+                      "timeout budget exhaustion must leave placeholders")
         case "timeout-leaf":
             try check(delays == [1, 2] && calls == 7 && Array(batches.prefix(3)) == Array(repeating: expected, count: 3),
                       "persistent timeout must bisect only on the last allowed attempt")
@@ -223,6 +243,7 @@ private struct Failure: Error { let message: String }
         switch CommandLine.arguments[1] {
         case "classification": try classification()
         case "propagation": try await propagation()
+        case "timeout-budget": try await timeoutBudget()
         case "large-initial": try await largeInitial()
         case "deterministic":
             for error in [NativeObjectError.invalidGeometry, .unsupported("math-helper-rejected")] {

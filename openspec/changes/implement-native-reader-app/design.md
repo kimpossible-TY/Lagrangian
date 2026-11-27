@@ -822,6 +822,7 @@ Viewport failures reach the existing per-ID initial attempt plus two retries,
 using injected delay multipliers [1, 2] (50/100 ms by default). On the last
 allowed attempt, prepareLazy isolates persistent timeout leaves and publishes
 valid siblings; failed leaves remain placeholders in the returned failures set.
+Timeout isolation stops after `2 * ceil(log2(max(n, 2))) + 1` timed-out provider calls for n input nodes; exhaustion throws and leaves attempted objects as placeholders.
 Other exhausted errors keep attempted IDs as placeholders until the
 viewport/layout epoch resets, suppressed by attempt/error-count state without
 an isolation result. Invalid returned metrics are rejected transactionally

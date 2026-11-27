@@ -97,6 +97,7 @@ struct NativeReaderPreparedTextObject {
     @MainActor static func prepareLazy(_ nodes: [NativeReaderNode],
         provider: ([NativeReaderNode]) async throws -> [String: Self],
         bounded: Bool = false, isolatingTimeout: Bool = false) async throws -> (objects: [String: Self], failures: Set<String>) {
+        var timeoutBudget = isolatingTimeout ? 2 * Int(ceil(log2(Double(max(nodes.count, 2))))) + 1 : 0
         func prepare(_ selected: [NativeReaderNode], isolating: Bool = false) async throws -> (objects: [String: Self], failures: Set<String>) {
             try Task.checkCancellation()
             do { return (try await provider(selected), []) }
@@ -105,6 +106,10 @@ struct NativeReaderPreparedTextObject {
                 case let failure as NativeObjectError:
                     guard failure.classification.scope == .deterministic ||
                         (isolatingTimeout && failure == .unsupported("math-helper-timeout")) else { throw error }
+                    if isolatingTimeout && failure == .unsupported("math-helper-timeout") {
+                        timeoutBudget -= 1
+                        guard timeoutBudget > 0 else { throw error }
+                    }
                 case NativeReaderTextFailure.unsupportedObject, NativeReaderTextFailure.invalidGeometry:
                     break
                 default: throw error
