@@ -90,9 +90,9 @@ struct NativeReaderPreparedTextObject {
             count += next; return true
         })
     }
-    // Partial preparation may salvage siblings; snapshots and worker batches
-    // stay atomic. Busy means the shared worker is still tearing down, so it
-    // must reach the caller's bounded backoff rather than isolate valid nodes.
+    // Deterministic object failures may salvage siblings. Transient/system
+    // errors discard staged halves and reach the caller's bounded backoff;
+    // cancellation/staleness abort. Worker batches themselves stay atomic.
     @MainActor static func prepareLazy(_ nodes: [NativeReaderNode],
         provider: ([NativeReaderNode]) async throws -> [String: Self],
         bounded: Bool = false) async throws -> (objects: [String: Self], failures: Set<String>) {
@@ -101,11 +101,9 @@ struct NativeReaderPreparedTextObject {
             do { return (try await provider(selected), []) }
             catch {
                 switch error {
-                case is CancellationError, NativeObjectError.cancelled, NativeObjectError.stale,
-                     NativeReaderTextFailure.staleGeometry, NativeObjectError.unsupported("math-worker-busy"):
-                    throw error
-                case is NativeObjectError, NativeReaderTextFailure.unsupportedObject,
-                     NativeReaderTextFailure.invalidGeometry:
+                case let failure as NativeObjectError:
+                    guard failure.classification.scope == .deterministic else { throw error }
+                case NativeReaderTextFailure.unsupportedObject, NativeReaderTextFailure.invalidGeometry:
                     break
                 default: throw error
                 }
@@ -1092,15 +1090,19 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
             } catch {
                 guard let self, self.lazyEpoch == epoch else { return }
                 switch error {
-                case is CancellationError, NativeObjectError.cancelled, NativeObjectError.stale,
-                     NativeReaderTextFailure.staleGeometry:
+                case is CancellationError, NativeReaderTextFailure.staleGeometry:
+                    self.lazyTask = nil
+                    return
+                case let failure as NativeObjectError where failure.classification.scope == .obsolete:
                     self.lazyTask = nil
                     return
                 default: break
                 }
                 if !Task.isCancelled {
                     // Initial attempt plus at most two retries per ID in this
-                    // viewport epoch. Invalid results are never retryable.
+                    // viewport epoch. At the cap, attempted IDs stay placeholders
+                    // until the epoch resets; no isolated failures are recorded.
+                    // Invalid returned results are never retryable.
                     if !providerReturned {
                         for node in missing {
                             let errors = (self.lazyErrorCounts[node.id] ?? 0) + 1
