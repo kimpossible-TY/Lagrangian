@@ -611,3 +611,54 @@ The native reader design parity owner correction registers the following 21 path
 `tests/flow-app/native-reader-app/test_native_design_parity.py`,
 `tests/flow-app/native-reader-app/test_native_floating_capsule.py`.
 Hashes are Git-derived.
+
+The transient object classification owner correction registers the following 7 paths from
+`7aa07ba43765417b2909a9f5d8dbf59665a0262d` →
+`e655167872306fb69d52c5371f09ab613e3a55ec`:
+`apps/macos/NativeReaderObjectRenderer.swift`,
+`apps/macos/NativeReaderTextView.swift`,
+`openspec/changes/implement-native-reader-app/design.md`,
+`openspec/changes/implement-native-reader-app/specs/native-reader/spec.md`,
+`openspec/changes/implement-native-reader-app/tasks.md`,
+`tests/flow-app/native-reader-app/ObjectTransientTests.swift`,
+`tests/flow-app/native-reader-app/test_object_transient.py`.
+Hashes are Git-derived.
+
+The PR #34 review follow-up owner correction registers the following 8 paths from
+`c68ad44d5291bb4ff0ca004907f3dff69bd1435d` →
+`cb326c673abc33fe7e82161b2cfac9e9a8987567`:
+`apps/macos/NativeReaderTextView.swift`,
+`apps/macos/NativeReaderWindowController.swift`,
+`openspec/changes/implement-native-reader-app/design.md`,
+`openspec/changes/implement-native-reader-app/specs/native-reader/spec.md`,
+`openspec/changes/implement-native-reader-app/tasks.md`,
+`tests/flow-app/native-reader-app/ObjectTransientTests.swift`,
+`tests/flow-app/native-reader-app/TextInteractionTests.swift`,
+`tests/flow-app/native-reader-app/test_object_transient.py`.
+Hashes are Git-derived.
+
+The PR #34 timeout budget owner correction registers the following 5 paths from
+`013d98d8e0203c7743178c5d3de4398d45898531` →
+`ec9b27ab6164771022cda7eeb700f9a2c3fb8f16`:
+`apps/macos/NativeReaderTextView.swift`,
+`openspec/changes/implement-native-reader-app/design.md`,
+`tests/flow-app/native-reader-app/ObjectTransientTests.swift`,
+`tests/flow-app/native-reader-app/TextInteractionTests.swift`,
+`tests/flow-app/native-reader-app/test_object_transient.py`.
+Hashes are Git-derived.
+
+The PR #34 third review owner correction registers the following 5 paths from
+`3cf765897bf11f1ea8090eb6cdf337f3fa95d42c` →
+`085e209f13fb6d294b5588f3592566415a5a6271`:
+`apps/macos/NativeReaderTextView.swift`,
+`openspec/changes/implement-native-reader-app/specs/native-reader/spec.md`,
+`tests/flow-app/native-reader-app/ObjectTransientTests.swift`,
+`tests/flow-app/native-reader-app/TextInteractionTests.swift`,
+`tests/flow-app/native-reader-app/test_object_transient.py`.
+Hashes are Git-derived.
+
+The PR #34 disk window resize owner correction registers the following 1 path from
+`3e5dc2616acb05f643d6c5cbb7b63e2705164ffa` →
+`2feb566d6124214c8c40136ac351b13acf98fea9`:
+`tests/flow-app/native-reader-app/TextInteractionTests.swift`.
+Hashes are Git-derived.

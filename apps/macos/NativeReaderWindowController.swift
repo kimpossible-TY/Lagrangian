@@ -532,10 +532,10 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       // Recovery and other unbounded-entry paths prepare up to 128 objects
       // before adoption. Give them the same isolation as viewport work, while
       // bounding retained initial paint to the existing lazy cache budget.
-      objects = try await NativeReaderPreparedTextObject.prepareLazy(nodes, provider: { selected in
+      objects = try await Self.prepareInitialLazyObjects(nodes) { selected in
         try await Self.prepareObjects(document, nodes: selected, key: key, assets: descriptors,
           worker: worker, ticket: ticket, viewedLayouts: bounded ? viewedLayouts : nil)
-      }, bounded: true).objects
+      }
     }
     else {
       objects = try await Self.prepareObjects(document, nodes: nodes, key: key, assets: descriptors,
@@ -592,6 +592,17 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
         else { self.rememberCurrentDraft(); chat.dispose(); chat.removeFromSuperview(); self.chatView = nil; self.chatContext = nil }
       }
     })
+  }
+
+  // A transient initial failure must not prevent large/recovery adoption. The
+  // adopted placeholders hand preparation off to the viewport's bounded backoff.
+  static func prepareInitialLazyObjects(_ nodes: [NativeReaderNode],
+    provider: ([NativeReaderNode]) async throws -> [String: NativeReaderPreparedTextObject]) async throws -> [String: NativeReaderPreparedTextObject] {
+    do {
+      return try await NativeReaderPreparedTextObject.prepareLazy(nodes, provider: provider, bounded: true).objects
+    } catch let failure as NativeObjectError where failure.classification.scope == .transient {
+      return [:]
+    }
   }
 
   private nonisolated static func prepareObjects(_ document: NativeReaderDocument, nodes: [NativeReaderNode],

@@ -18,6 +18,7 @@ The reader SHALL retain accepted section order, exact Unicode scalars, headings,
 - **WHEN** composed, decomposed, supplementary or joined characters are imported
 - **THEN** exact scalar sequences and explicit UTF8/codepoint/UTF16 maps are preserved
 - **AND** selection uses extended grapheme boundaries and source correspondence remains explicitly unmapped until the source owner verifies it
+- **AND** native MathML serialization may drop presentation attributes and U+FE00–FE0F while canonical/display text and their offset maps retain the accepted scalars
 
 #### Scenario: Unknown semantics or capability
 - **WHEN** a candidate contains an unknown required capability, unsupported element, duplicate anchor or invalid offset
@@ -81,7 +82,7 @@ SHALL reject atomically through import, transport and generic recovery decoding.
 
 
 ### Requirement: Retained native presentation survives rejected work
-The native reader SHALL separate retained layout authority from current request generation, preserve accepted body/selection/accessibility during held reflow, and reject stale geometry/source operations. Fallible candidate composition SHALL preserve the previously painted publication. Explicit close SHALL permit safe same-profile reopening without stale callbacks.
+The native reader SHALL separate retained layout authority from request generation, preserve accepted body/selection/accessibility during held reflow, and reject stale geometry/source operations. Failed candidate composition SHALL preserve the painted publication. Large/recovery preparation MAY adopt a bounded subset with placeholders as specified below. Explicit close SHALL permit same-profile reopening without stale callbacks.
 
 #### Scenario: Reflow while a newer candidate is held
 - **WHEN** a new request completes while the accepted document is selected and layout inputs change
@@ -89,8 +90,10 @@ The native reader SHALL separate retained layout authority from current request 
 - **AND** source operations continue rejecting stale/pending contexts until explicit release and fresh adoption
 
 #### Scenario: Rejected candidate or closed selected window
-- **WHEN** candidate B has missing/invalid object preparation after A was painted
+- **WHEN** candidate B has missing/invalid object preparation after A was painted on the eager all-object path, or its final composition fails on any path
 - **THEN** A remains the published native body and accessibility document
+- **AND** on the large/recovery subset path, deterministic failures isolated during preparation of B may instead be omitted: B is adopted with those objects as lazy placeholders and successfully prepared siblings within budget
+- **AND** invalid returned object metrics still reject B during composition; a non-transient preparation error that cannot be isolated (including an unsplit singleton) still rejects B
 - **WHEN** the user explicitly closes a selected window and reads the same profile again
 - **THEN** the new request can complete and old close/cancel callbacks cannot cancel it
 
@@ -441,13 +444,42 @@ Document JSON SHALL be capped at 64 MiB. Nodes SHALL preserve validated listItem
 - **AND** helper limits are 1–512 items, 64 MiB batch input/output, 256 KiB item input, 65536-byte source and 8 MiB item output
 - **THEN** preparation retries smaller halves in order without publishing partial results
 - **AND** a failing single-item chunk stops rather than retrying indefinitely
-- **AND** all attempts share a deadline of twice the initial chunk timeout, each child timeout fits the remaining time, and snapshot preparation stays atomic if any sub-range fails
+- **AND** all attempts share a deadline of twice the initial chunk timeout, each child timeout fits the remaining time, and the worker batch publishes no successful sub-ranges if any sub-range fails
 - **AND** a helper output-limit error fails immediately without re-splitting
 
 #### Scenario: Preserve current wire semantics
 - **WHEN** a valid accepted snapshot includes ordered list numbering, percentage image dimensions or mark: anchors
 - **THEN** import, decode and recovery preserve those values under the 64 MiB document cap
 - **AND** invalid values or duplicate anchors reject atomically
+
+### Requirement: Lazy viewport isolates deterministic per-object failures
+Lazy preparation SHALL bisect deterministic failures and isolate failed leaves while publishing valid siblings. NativeObjectError SHALL own the shared classification for isolation, worker splitting and viewport recovery. Transient/busy errors SHALL reach bounded backoff; the last viewport attempt SHALL isolate persistent timeout leaves within the timeout isolation budget. Cancelled/stale work SHALL abort without backoff or partial publication.
+
+#### Scenario: Recover a transient multi-object viewport
+- **WHEN** timeout, worker busy, helper I/O/input/memory observation or missing runtime interrupts lazy preparation
+- **THEN** the whole prepare throws, including staged successful halves, except for timeout isolation on the last viewport attempt
+- **AND** the viewport retries each ID at most twice after the initial attempt, with delay multipliers [1, 2] (50 ms, 100 ms by default)
+- **AND** a successful retry publishes all valid siblings without recording isolated failures
+- **AND** the last allowed attempt bisects persistent timeouts, leaves only failed leaves as placeholders and publishes valid siblings within the timeout isolation budget; other exhausted errors keep attempted IDs as placeholders until the viewport/layout epoch resets; timeout isolation is bounded to 2·⌈log2(max(n,2))⌉+1 timed-out provider calls per batch, and exhaustion throws, leaving attempted IDs as placeholders
+
+#### Scenario: Isolate a deterministic bad object
+- **WHEN** a multi-object prepare throws invalidGeometry, math-helper-rejected, unsupported object/SVG/raster, budget or another deterministic object error
+- **THEN** bisection records only failed leaf IDs as isolated and publishes valid siblings
+- **AND** cancellation/staleness or a non-isolatable transient error discovered in either half discards staged results and propagates instead
+
+### Requirement: Large and recovery initial preparation adopts a budget-bounded subset
+Large/recovery initial preparation SHALL use the lazy isolation path with at most 128 initial object units and retain at most the 16 MiB lazy cache budget. Deterministic isolated failures and budget omissions SHALL remain lazy placeholders in the adopted document. The viewed-window cache path MAY begin with no prepared objects. Semantic validation and final composition SHALL remain guarded and atomic.
+
+#### Scenario: Adopt candidate B with omitted initial objects
+- **WHEN** B uses large/recovery subset preparation and its selected initial objects exceed the cache budget or contain isolatable deterministic failures
+- **THEN** preparation salvages valid siblings, bounds retained initial paint and adopts B with omitted objects as lazy placeholders
+- **AND** lazy viewport preparation may attempt those omissions again; initial isolation IDs are not carried into the viewport attempt set
+- **AND** a cancelled/stale preparation error propagates and prevents that adoption
+
+#### Scenario: Hand transient initial preparation to viewport backoff
+- **WHEN** large/recovery initial preparation encounters a transient error
+- **THEN** B is adopted without initial objects and configureLazyObjects hands preparation to viewport backoff with delay multipliers [1, 2]
+- **AND** the transient error is not recorded as deterministic isolation; cancelled/stale work still propagates and prevents adoption
 
 ### Requirement: Native outline drawer and active section
 The reader SHALL use NativeOutlineDrawerView as a glass overlay below the toolbar, mutually exclusive with Aa and logo popovers. The outline toggle SHALL show a truncated active section title above 680pt and only its icon at or below 680pt. Empty outlines and Original PDF SHALL disable navigation.

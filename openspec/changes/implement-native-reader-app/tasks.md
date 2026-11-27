@@ -195,8 +195,15 @@ locator remains historical. This executor follows the existing single-writer pla
 - [x] r1-S2: align Home/menu-bar spec and design with the retained simplified UI.
 
 ## PR33 re-review corrections
-- [x] Bound math retries by one per-chunk deadline (twice the initial timeout), retain atomic preparation, and fail deterministic output-limit without splitting.
+- [x] Bound math retries by one per-chunk deadline (twice the initial timeout), retain atomic worker-batch results, and fail deterministic output-limit without splitting.
 - [x] Restore the offline original PDF toolbar requirement scope and concrete toolbar labels. Exact 705f48b3 paragraph restoration exceeds OpenSpec's 500-character strict limit; retain minimal reflow with capsule labels/actions in the existing scenario.
+
+## Native math post-review S1/S2 corrections
+
+- [x] S1: centralize transient/deterministic/obsolete NativeObjectError classification; share it between lazy isolation, worker chunk splitting and viewport abort handling while preserving deadlines and output-limit behavior.
+- [x] S1: add a self-contained Swift/AppKit harness for timeout propagation, complete sibling publication, [1, 2] backoff, last-attempt timeout leaf isolation, bounded all-timeout exhaustion, deterministic leaf isolation and cancel/stale aborts.
+- [x] S2: specify lazy deterministic isolation, transient backoff and large/recovery budget-bounded subset adoption, including the rejected-candidate exception and omitted-placeholder lifetime.
+- [x] S2: document per-batch MathJax runtime reuse/reset, cumulative loaded/moduleFiles, current MathML normalization and changed helper bytes with retained version pins.
 
 
 ## NRD01B — native reader design parity integration

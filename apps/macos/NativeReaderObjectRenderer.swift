@@ -10,6 +10,31 @@ import UniformTypeIdentifiers
 // native CGImages. No WebView executes content. Failed candidates stay atomic.
 enum NativeObjectError: Error, Equatable {
     case unsupported(String), invalidGeometry, stale, cancelled, budget
+
+    enum FailureScope { case obsolete, transient, deterministic }
+    struct Classification {
+        let scope: FailureScope
+        var splitsMathBatch = false
+    }
+    // One recovery table for worker chunk retries, lazy isolation and viewport
+    // backoff. Cancellation/staleness abort without either isolation or retry.
+    var classification: Classification {
+        switch self {
+        case .cancelled, .stale:
+            return Classification(scope: .obsolete)
+        case .unsupported("math-helper-timeout"):
+            return Classification(scope: .transient, splitsMathBatch: true)
+        case .unsupported("math-worker-busy"), .unsupported("math-helper-io"),
+             .unsupported("math-helper-input"), .unsupported("math-helper-memory-observation"),
+             .unsupported("math-runtime-missing"), .unsupported("math-runtime-not-delivered"),
+             .unsupported("answer-math-runtime-not-delivered"):
+            return Classification(scope: .transient)
+        case .budget, .unsupported("input-limit"):
+            return Classification(scope: .deterministic, splitsMathBatch: true)
+        default:
+            return Classification(scope: .deterministic)
+        }
+    }
 }
 
 struct NativeVectorShape {
@@ -429,13 +454,7 @@ enum NativeMathBatchPolicy {
             guard remaining > 0 else { throw NativeObjectError.unsupported("math-helper-timeout") }
             do { return try await perform(range, min(remaining, timeout(base: baseTimeout, items: range.count))) }
             catch {
-                let retry: Bool
-                switch error {
-                case NativeObjectError.budget, NativeObjectError.unsupported("math-helper-timeout"),
-                     NativeObjectError.unsupported("input-limit"):
-                    retry = true
-                default: retry = false
-                }
+                let retry = (error as? NativeObjectError)?.classification.splitsMathBatch == true
                 guard retry, range.count > 1 else { throw error }
                 let middle = range.lowerBound + range.count / 2
                 let left = try await attempt(range.lowerBound..<middle)

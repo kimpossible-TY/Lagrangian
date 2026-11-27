@@ -214,7 +214,7 @@ extension NSPasteboard {
         defer { view.dispose() }
         view.setFrameSize(NSSize(width: 640, height: 96))
         let initialIDs = Set(blocks.prefix(128).map(\.id))
-        func prepared(_ node: NativeReaderNode, _ key: NativeReaderTextRenderKey, cost: Int = 65536) -> NativeReaderPreparedTextObject {
+        func prepared(_ node: NativeReaderNode, _ key: NativeReaderTextRenderKey, cost: Int = 122_880) -> NativeReaderPreparedTextObject {
             NativeReaderPreparedTextObject(key: key, size: NSSize(width: 240, height: 40), baseline: 0,
                 accessibilityLabel: node.math!.normalizedText, draw: { _ in }, cost: cost)
         }
@@ -251,7 +251,7 @@ extension NSPasteboard {
             offMain = !result.1
             return result.0
         }
-        try check(view.preparedObjectCost == 128 * 65536, "initial cost within exact budget")
+        try check(view.preparedObjectCost == 128 * 122_880, "initial cost within exact budget")
         let initialRange = try view.textMap!.presentationRange(blockID: blocks[0].id, logical: 0..<source.displayText.utf16.count)
         view.bodyTextView.setSelectedRange(initialRange, affinity: .upstream, stillSelecting: false)
         let selected = view.bodyTextView.selectedRanges, selection = store.selection
@@ -291,6 +291,10 @@ extension NSPasteboard {
             "Return preparation retains selection and find interface")
         // A provider may reduce a batch to fit the preparation budget. Nodes
         // omitted from that result must still get their own later request.
+        let partialTarget = try view.textMap!.presentationRange(blockID: blocks[150].id, logical: 0..<source.displayText.utf16.count)
+        view.bodyTextView.scrollRangeToVisible(partialTarget)
+        try await waitFor("partial scenario viewport prepared") { view.preparedObjectIDs.contains(blocks[150].id) }
+        try await finishLazyPreparation(view)
         let buffer = view.scrollView.contentView.bounds.insetBy(dx: 0, dy: -view.scrollView.contentView.bounds.height)
         let partialIDs = Set(blocks.filter { node in
             view.rects(blockID: node.id, logical: 0..<source.displayText.utf16.count).contains { $0.intersects(buffer) }
@@ -568,15 +572,16 @@ extension NSPasteboard {
         let objectErrors: [Error] = [NativeObjectError.budget, NativeObjectError.invalidGeometry,
             NativeObjectError.unsupported("indivisible-math-overflow"), NativeReaderTextFailure.unsupportedObject("fixture")]
         for failure in objectErrors {
-            for failedIndex in [0, 1, 3] {
+            for failedIndex in [0, 1, -1] {
                 var requested = [NativeReaderNode](), failedID: String?, calls = 0
                 var painted = Set<String>()
                 retained.configureLazyObjects(key: key, initial: [:]) { nodes, current in
                     calls += 1
                     if requested.isEmpty {
                         requested = nodes
-                        try check(nodes.count > failedIndex, "viewport contains both split halves")
-                        failedID = nodes[failedIndex].id
+                        let resolvedIndex = failedIndex == -1 ? nodes.count - 1 : failedIndex
+                        try check(nodes.count > 1 && nodes.count > resolvedIndex, "viewport contains both split halves")
+                        failedID = nodes[resolvedIndex].id
                     }
                     if nodes.contains(where: { $0.id == failedID }) { throw failure }
                     return Dictionary(uniqueKeysWithValues: nodes.map { node in
@@ -795,7 +800,10 @@ extension NSPasteboard {
                     try view.setAppearance(.init(fontSize: font, zoom: 1, theme: theme))
                     try check(!painted, "layout must not acknowledge paint")
                     let key = view.renderKey!
-                    try check(key.width <= width && key.width > width - 70, "body width")
+                    let effectiveSize = view.textAppearance.effectiveSize
+                    let pad: CGFloat = width <= 640 ? 20 : 28
+                    let expected = min(min(720, max(680, effectiveSize * 45)), width - 2 * pad)
+                    try check(abs(key.width - expected) <= 0.5, "body width")
                     try check(view.bodyTextView.isEditable == false, "read-only native body")
                     try check(view.logicalText.unicodeScalars.map(\.value) == oracleTexts.joined(separator: "\n").unicodeScalars.map(\.value), "exact scalar preservation")
                     for item in oracleUnicode {
@@ -1381,8 +1389,13 @@ extension TextInteractionMain {
         let appearanceKey = try await disk.latest(ownerID: saved.ownerID)!.key
         let window = reopened.hostWindow.window!
         let contentSize = window.contentView!.bounds.size
-        window.setContentSize(NSSize(width: contentSize.width - 80, height: contentSize.height))
+        // 29235aad caps the reading column at 680–720pt. Shrink below every cap:
+        // 680 − 2·28 = 624 < 680 ≤ target for all font sizes and zooms.
+        let resizedWidth: CGFloat = 680
+        try check(contentSize.width - 56 >= 680 && resizedWidth >= window.minSize.width, "resize starts at the cap and respects minimum size")
+        window.setContentSize(NSSize(width: resizedWidth, height: contentSize.height))
         window.contentView!.layoutSubtreeIfNeeded()
+        try check((reopened.textView.bodyTextView.textContainer?.containerSize.width ?? 0) < 680, "resized column falls below every measure cap")
         try await waitFor("resized window reconfigured") {
             reopened.textView.requestedRenderKey?.width != CGFloat(appearanceKey.width) &&
                 reopened.acceptedPaintKey == reopened.textView.requestedRenderKey
