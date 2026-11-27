@@ -2435,6 +2435,52 @@
             "sha256": "7687638521dfa5332efaeac2d8bd09554ecbd3804be93c0f58a062d1e6f8f201"
           }
         ]
+      },
+      {
+        "revision": "cb326c673abc33fe7e82161b2cfac9e9a8987567",
+        "baseRevision": "c68ad44d5291bb4ff0ca004907f3dff69bd1435d",
+        "files": [
+          {
+            "path": "apps/macos/NativeReaderTextView.swift",
+            "baseSHA256": "ec2416481808ce439196d9878d4d714997aae40e3aa17507b3f0d7e6484ecc1b",
+            "sha256": "78beb70a31fbb68094086e1aa1d70bb58560c1f7782003955cfbd4f8613c04e1"
+          },
+          {
+            "path": "apps/macos/NativeReaderWindowController.swift",
+            "baseSHA256": "d290dad220e8f789bf63d18d93659c0c5876edfdb48a4034daad64ff78dde22a",
+            "sha256": "6e2dee586254293b872f400eb587649068e8f8f924ca6193f5dabee1e426a2ab"
+          },
+          {
+            "path": "openspec/changes/implement-native-reader-app/design.md",
+            "baseSHA256": "4dd86785d9edba5e4267430b97bbf30808b5a92e98f3858393075d085f0e5f2c",
+            "sha256": "0a96bf8eb23dd15cc7489c7209c6cdc6bd935fc1703f5714d82235794688bb4a"
+          },
+          {
+            "path": "openspec/changes/implement-native-reader-app/specs/native-reader/spec.md",
+            "baseSHA256": "35ac162423846d673c97e3aa5fc42a578384857757e295dbd5a77816b94d1ff8",
+            "sha256": "20b54ba374c8e86ccff295e975ac7d3a435c1581524b170c96a3b8ddb9916a23"
+          },
+          {
+            "path": "openspec/changes/implement-native-reader-app/tasks.md",
+            "baseSHA256": "89dc05caf3a6e5ae39f9af261b3162c969703ed9f07984e513597f4e48bcc675",
+            "sha256": "f7097e1f5e30ccaaa484757f48ca4b00ff08aa4b2107eae623a22f666a43733c"
+          },
+          {
+            "path": "tests/flow-app/native-reader-app/ObjectTransientTests.swift",
+            "baseSHA256": "4e2c90527ec8136b9bed4329e7b2df138777978534c6d711c9a12d1bfaac2a36",
+            "sha256": "165629e6b1ac6f270e79a9fe4d9e0801be658257e0103f33b4d7a535cb0b78b8"
+          },
+          {
+            "path": "tests/flow-app/native-reader-app/TextInteractionTests.swift",
+            "baseSHA256": "0222541eaf33a1014426d4d0263d914446befdfc8fb4437946eee80cb0669e74",
+            "sha256": "39a73ad11ba844931d185a960ed53d3f14fe932a8a78c545afb485b6d6aec6dd"
+          },
+          {
+            "path": "tests/flow-app/native-reader-app/test_object_transient.py",
+            "baseSHA256": "7687638521dfa5332efaeac2d8bd09554ecbd3804be93c0f58a062d1e6f8f201",
+            "sha256": "60261c639fef6526d22e46a03ab3ccaa923a7421d454a336a8b37252942b16e1"
+          }
+        ]
       }
     ]
   }

@@ -623,3 +623,16 @@ The transient object classification owner correction registers the following 7 p
 `tests/flow-app/native-reader-app/ObjectTransientTests.swift`,
 `tests/flow-app/native-reader-app/test_object_transient.py`.
 Hashes are Git-derived.
+
+The PR #34 review follow-up owner correction registers the following 8 paths from
+`c68ad44d5291bb4ff0ca004907f3dff69bd1435d` →
+`cb326c673abc33fe7e82161b2cfac9e9a8987567`:
+`apps/macos/NativeReaderTextView.swift`,
+`apps/macos/NativeReaderWindowController.swift`,
+`openspec/changes/implement-native-reader-app/design.md`,
+`openspec/changes/implement-native-reader-app/specs/native-reader/spec.md`,
+`openspec/changes/implement-native-reader-app/tasks.md`,
+`tests/flow-app/native-reader-app/ObjectTransientTests.swift`,
+`tests/flow-app/native-reader-app/TextInteractionTests.swift`,
+`tests/flow-app/native-reader-app/test_object_transient.py`.
+Hashes are Git-derived.
