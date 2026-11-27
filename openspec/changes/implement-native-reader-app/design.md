@@ -803,7 +803,8 @@ NativeReaderPreparedTextObject.prepareLazy and the TextView viewport catch:
 - Transient/node-independent: math-worker-busy, math-helper-timeout,
   math-helper-io, math-helper-input (stdin I/O), math-helper-memory-observation,
   math-runtime-missing, math-runtime-not-delivered and the answer-only
-  answer-math-runtime-not-delivered. These never become isolated leaf failures.
+  answer-math-runtime-not-delivered. Only timeout may become an isolated leaf
+  failure, on the viewport's last allowed attempt after bounded backoff.
 - Obsolete: cancelled/stale. These abort without isolation or backoff, as do
   CancellationError and NativeReaderTextFailure.staleGeometry.
 - Deterministic: invalidGeometry, budget and remaining unsupported codes,
@@ -815,12 +816,16 @@ NativeReaderPreparedTextObject.prepareLazy and the TextView viewport catch:
 The table separately marks only timeout, budget and input-limit for worker
 chunk splitting. This preserves the existing cumulative deadline and immediate
 output-limit behavior; transient does not mean every error should split a batch.
-No staged half is returned when another half throws transient/cancel/stale.
+No staged half is returned when another half throws a non-isolatable
+transient/cancel/stale error.
 Viewport failures reach the existing per-ID initial attempt plus two retries,
-using injected delay multipliers [1, 2] (50/100 ms by default). After exhaustion,
-attempted IDs remain placeholders until the viewport/layout epoch resets. They
-are suppressed by attempt/error-count state, without a deterministic failures
-result. Invalid returned metrics are rejected transactionally without retry.
+using injected delay multipliers [1, 2] (50/100 ms by default). On the last
+allowed attempt, prepareLazy isolates persistent timeout leaves and publishes
+valid siblings; failed leaves remain placeholders in the returned failures set.
+Other exhausted errors keep attempted IDs as placeholders until the
+viewport/layout epoch resets, suppressed by attempt/error-count state without
+an isolation result. Invalid returned metrics are rejected transactionally
+without retry.
 
 Eager small-document preparation still requires all objects. Large/recovery
 initial preparation instead passes up to 128 object units through prepareLazy
@@ -828,8 +833,10 @@ with bounded cache admission (16 MiB); viewed-window mode can start empty.
 Valid siblings are salvaged and excess objects or isolated deterministic failures
 are omitted. Thus candidate B can replace painted A on this path with invalid
 objects that failed deterministic preparation represented by lazy placeholders.
-Invalid returned metrics still reject B at final composition, and any unisolated
-error (including an unsplit singleton, transient, cancel or stale) prevents
+Invalid returned metrics still reject B at final composition. A transient
+initial preparation error instead adopts B without initial objects and hands
+off through configureLazyObjects to viewport [1, 2] backoff. Other unisolated
+errors (including a deterministic unsplit singleton, cancel or stale) prevent
 adoption. The initial failures set is not carried into configureLazyObjects,
 so omitted objects can be attempted again when visible. Semantic validation,
 selection holds, freshness checks and final adoption remain atomic. This does

@@ -93,7 +93,7 @@ The native reader SHALL separate retained layout authority from request generati
 - **WHEN** candidate B has missing/invalid object preparation after A was painted on the eager all-object path, or its final composition fails on any path
 - **THEN** A remains the published native body and accessibility document
 - **AND** on the large/recovery subset path, deterministic failures isolated during preparation of B may instead be omitted: B is adopted with those objects as lazy placeholders and successfully prepared siblings within budget
-- **AND** invalid returned object metrics still reject B during composition; a preparation error that cannot be isolated (including an unsplit singleton) still rejects B
+- **AND** invalid returned object metrics still reject B during composition; a non-transient preparation error that cannot be isolated (including an unsplit singleton) still rejects B
 - **WHEN** the user explicitly closes a selected window and reads the same profile again
 - **THEN** the new request can complete and old close/cancel callbacks cannot cancel it
 
@@ -453,19 +453,19 @@ Document JSON SHALL be capped at 64 MiB. Nodes SHALL preserve validated listItem
 - **AND** invalid values or duplicate anchors reject atomically
 
 ### Requirement: Lazy viewport isolates deterministic per-object failures
-Lazy preparation SHALL bisect deterministic object failures and isolate failed leaves while publishing valid siblings. NativeObjectError SHALL own the shared classification for isolation, worker splitting and viewport recovery. Transient/busy errors SHALL propagate to bounded backoff without isolation. Cancelled/stale work SHALL propagate and abort without backoff or partial publication.
+Lazy preparation SHALL bisect deterministic failures and isolate failed leaves while publishing valid siblings. NativeObjectError SHALL own the shared classification for isolation, worker splitting and viewport recovery. Transient/busy errors SHALL reach bounded backoff; the last viewport attempt SHALL isolate persistent timeout leaves. Cancelled/stale work SHALL abort without backoff or partial publication.
 
 #### Scenario: Recover a transient multi-object viewport
 - **WHEN** timeout, worker busy, helper I/O/input/memory observation or missing runtime interrupts lazy preparation
-- **THEN** the whole prepare throws, including when a successful half was already staged
+- **THEN** the whole prepare throws, including staged successful halves, except for timeout isolation on the last viewport attempt
 - **AND** the viewport retries each ID at most twice after the initial attempt, with delay multipliers [1, 2] (50 ms, 100 ms by default)
 - **AND** a successful retry publishes all valid siblings without recording isolated failures
-- **AND** exhaustion leaves attempted IDs as placeholders until the viewport/layout epoch resets, without recording deterministic isolation
+- **AND** the last allowed attempt bisects persistent timeouts, leaves only failed leaves as placeholders and publishes valid siblings; other exhausted errors keep attempted IDs as placeholders until the viewport/layout epoch resets
 
 #### Scenario: Isolate a deterministic bad object
 - **WHEN** a multi-object prepare throws invalidGeometry, math-helper-rejected, unsupported object/SVG/raster, budget or another deterministic object error
 - **THEN** bisection records only failed leaf IDs as isolated and publishes valid siblings
-- **AND** cancellation/staleness or a transient error discovered in either half discards staged results and propagates instead
+- **AND** cancellation/staleness or a non-isolatable transient error discovered in either half discards staged results and propagates instead
 
 ### Requirement: Large and recovery initial preparation adopts a budget-bounded subset
 Large/recovery initial preparation SHALL use the lazy isolation path with at most 128 initial object units and retain at most the 16 MiB lazy cache budget. Deterministic isolated failures and budget omissions SHALL remain lazy placeholders in the adopted document. The viewed-window cache path MAY begin with no prepared objects. Semantic validation and final composition SHALL remain guarded and atomic.
@@ -474,7 +474,12 @@ Large/recovery initial preparation SHALL use the lazy isolation path with at mos
 - **WHEN** B uses large/recovery subset preparation and its selected initial objects exceed the cache budget or contain isolatable deterministic failures
 - **THEN** preparation salvages valid siblings, bounds retained initial paint and adopts B with omitted objects as lazy placeholders
 - **AND** lazy viewport preparation may attempt those omissions again; initial isolation IDs are not carried into the viewport attempt set
-- **AND** a transient/cancelled/stale preparation error propagates and prevents that adoption; it is not converted into an omitted deterministic object
+- **AND** a cancelled/stale preparation error propagates and prevents that adoption
+
+#### Scenario: Hand transient initial preparation to viewport backoff
+- **WHEN** large/recovery initial preparation encounters a transient error
+- **THEN** B is adopted without initial objects and configureLazyObjects hands preparation to viewport backoff with delay multipliers [1, 2]
+- **AND** the transient error is not recorded as deterministic isolation; cancelled/stale work still propagates and prevents adoption
 
 ### Requirement: Native outline drawer and active section
 The reader SHALL use NativeOutlineDrawerView as a glass overlay below the toolbar, mutually exclusive with Aa and logo popovers. The outline toggle SHALL show a truncated active section title above 680pt and only its icon at or below 680pt. Empty outlines and Original PDF SHALL disable navigation.

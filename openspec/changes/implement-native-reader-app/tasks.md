@@ -201,7 +201,7 @@ locator remains historical. This executor follows the existing single-writer pla
 ## Native math post-review S1/S2 corrections
 
 - [x] S1: centralize transient/deterministic/obsolete NativeObjectError classification; share it between lazy isolation, worker chunk splitting and viewport abort handling while preserving deadlines and output-limit behavior.
-- [x] S1: add a self-contained Swift/AppKit harness for timeout propagation, complete sibling publication, [1, 2] backoff, bounded exhaustion without isolation, deterministic leaf isolation and cancel/stale aborts.
+- [x] S1: add a self-contained Swift/AppKit harness for timeout propagation, complete sibling publication, [1, 2] backoff, last-attempt timeout leaf isolation, bounded all-timeout exhaustion, deterministic leaf isolation and cancel/stale aborts.
 - [x] S2: specify lazy deterministic isolation, transient backoff and large/recovery budget-bounded subset adoption, including the rejected-candidate exception and omitted-placeholder lifetime.
 - [x] S2: document per-batch MathJax runtime reuse/reset, cumulative loaded/moduleFiles, current MathML normalization and changed helper bytes with retained version pins.
 
