@@ -214,7 +214,7 @@ extension NSPasteboard {
         defer { view.dispose() }
         view.setFrameSize(NSSize(width: 640, height: 96))
         let initialIDs = Set(blocks.prefix(128).map(\.id))
-        func prepared(_ node: NativeReaderNode, _ key: NativeReaderTextRenderKey, cost: Int = 65536) -> NativeReaderPreparedTextObject {
+        func prepared(_ node: NativeReaderNode, _ key: NativeReaderTextRenderKey, cost: Int = 122_880) -> NativeReaderPreparedTextObject {
             NativeReaderPreparedTextObject(key: key, size: NSSize(width: 240, height: 40), baseline: 0,
                 accessibilityLabel: node.math!.normalizedText, draw: { _ in }, cost: cost)
         }
@@ -251,7 +251,7 @@ extension NSPasteboard {
             offMain = !result.1
             return result.0
         }
-        try check(view.preparedObjectCost == 128 * 65536, "initial cost within exact budget")
+        try check(view.preparedObjectCost == 128 * 122_880, "initial cost within exact budget")
         let initialRange = try view.textMap!.presentationRange(blockID: blocks[0].id, logical: 0..<source.displayText.utf16.count)
         view.bodyTextView.setSelectedRange(initialRange, affinity: .upstream, stillSelecting: false)
         let selected = view.bodyTextView.selectedRanges, selection = store.selection
