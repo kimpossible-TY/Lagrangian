@@ -2554,6 +2554,97 @@
             "sha256": "83f6a7e909d999b2a71aa0d457cc7d495eae55e749cb18b72f49eeb7d3eebe13"
           }
         ]
+      },
+      {
+        "revision": "876f7d5dd3c6e16479095fd945b84c06df7ba33b",
+        "baseRevision": "0ae3e681fe2ad42b512dc10c983293e33957656d",
+        "files": [
+          {
+            "path": "docs/tinymist/dev/reader-architecture.typ",
+            "baseSHA256": "f751b5a087be65bb581227267ddc9d21310718b657b7e519a6fba910225dad78",
+            "sha256": "ee61092ed50b6bc9e4995d8c3fa5158a43ec5224eb4ac93318098307daa5c550"
+          },
+          {
+            "path": "openspec/changes/add-cross-project-references/design.md",
+            "baseSHA256": "0f7c97bd38784ec4e390d962920623ebc5075f1408c0ca1c32a13f74d2b24ac7",
+            "sha256": "f25dafa36b8d61110b8604994f3dafc9b08b228494333d2f859963aa76a9553f"
+          },
+          {
+            "path": "openspec/changes/add-cross-project-references/proposal.md",
+            "baseSHA256": "8b326c75379e052cc3a19663b6c94dfa22910d52f8a892fdfaf6edb4dfd27828",
+            "sha256": "b0274cb92312f4adf42044f93126c39c650d3d3071c7e1f834db4a42d1696e7f"
+          },
+          {
+            "path": "openspec/changes/add-cross-project-references/tasks.md",
+            "baseSHA256": "6484c559d7732d61f42655dc7c5c8a915e1189e9784dda80f2ee025dcb22664c",
+            "sha256": "e766e05cc3a58763dd5a77e18f2e04fa56843265d651125a4b980476e065c3c6"
+          },
+          {
+            "path": "openspec/changes/unify-lagrangian-web-viewer/design.md",
+            "baseSHA256": "a2337606f349afdeca20272f0083dc78ac36a3428acea74f60f0864fb029f685",
+            "sha256": "d99da2b9f637dc273b764bffeebf4c8d5d39835edf84eec429304805a7b4584a"
+          },
+          {
+            "path": "openspec/changes/unify-lagrangian-web-viewer/proposal.md",
+            "baseSHA256": "1d991c9167ae8d7f9c678b6d0700503e7c46dcabde160243cd51df176bc79004",
+            "sha256": "e3d0c0662f7d162f14be9a204ac3ee23ac7dfdad24bdaa3b5f001927399b7ca8"
+          },
+          {
+            "path": "openspec/changes/unify-lagrangian-web-viewer/specs/reader-architecture/spec.md",
+            "baseSHA256": "4bc504551a486c45b0a013db6bb4e11f75d8cde7fc26c6587ab17ffd2b3ce4ed",
+            "sha256": "db18ec01b27ad9590b3db148af42cf629f7c709b037d3fedd74ad6750406156d"
+          },
+          {
+            "path": "openspec/changes/unify-lagrangian-web-viewer/specs/web-viewer/spec.md",
+            "baseSHA256": "4de8befe6cd0769bbb9c6ffd76aa49e96e7ef1084721b1acebb6266e344244d2",
+            "sha256": "8152f34335aa4df37a05807de00595780b152c1f3c06333f0f3e4d086f26f843"
+          },
+          {
+            "path": "openspec/changes/unify-lagrangian-web-viewer/tasks.md",
+            "baseSHA256": "75cdc000d4955eb7f466d26ec7ed6a3a1fe39dfc5f2fe8ded1e24dc4b884dc85",
+            "sha256": "120eca0017b0f8062c9eeb6f46aa132d521f33018a57921c019383c01a6e9b1b"
+          },
+          {
+            "path": "tests/fixtures/cross-project-resolution.json",
+            "baseSHA256": null,
+            "sha256": "2f423426dc7d8cb960a5041f46d2221b5aae17055552b505545a46e1f5bbb950"
+          },
+          {
+            "path": "tests/flow-app/ProjectServiceTests.swift",
+            "baseSHA256": "ff3082aecbf45fb4fa201f09b7d80ef8aba10766b9e9ee10332398d2da79ee41",
+            "sha256": "8b45767c01e71ff4de2313e885023cf6eafbf84f8d864d859f02a1ee478250f7"
+          },
+          {
+            "path": "tests/flow-app/test_project_service.py",
+            "baseSHA256": "20c1b519f089024d8538b49f285b1b5bd3fc3aef69fb27023496ff0653b96b93",
+            "sha256": "457924c665ad5d9e97bd451a542b843f90df8d52379e2653bcfc3bcb54a963ba"
+          },
+          {
+            "path": "tools/flow-reader/flow_reader/server/native_reader.py",
+            "baseSHA256": "fd6bacf7520da5d15ffe160f6ac3f8c171661d120cbab76024d90ffabb1fac37",
+            "sha256": "3607664904e0efa0e0a63904d8409c58d2c10ec154f7ebb9bff815a2542cd6f2"
+          },
+          {
+            "path": "tools/flow-reader/flow_reader/server/routing.py",
+            "baseSHA256": "bc80379dffc47b70f6018897f9b0d7b93c7b978941530df0a54a9a7a0fcc9477",
+            "sha256": "32781fc9dac76fa9238f2294f8b70fa63a1c625d0a1be341cebda899346c5d6d"
+          },
+          {
+            "path": "tools/flow-reader/flow_reader/server/state.py",
+            "baseSHA256": "260849b6e184eb8126452b0bc84f30b822e35b57f413345d97e3e8d82776ad4f",
+            "sha256": "3ec743ca4b3042fa8823d192952db5013e0ebc8fd7ca09f57afa5443731df730"
+          },
+          {
+            "path": "tools/flow-reader/flow_reader/services/cross_project_refs.py",
+            "baseSHA256": "3e83d91004bd70d387fd9438ef70001805ecbb8c712d7e3f0b378dbdb867face",
+            "sha256": "059d731698411b5ef6d83ef0fe74eee3c4b99d73a15f7f5bfa98744a0e51acc8"
+          },
+          {
+            "path": "tools/flow-reader/tests/test_cross_project_refs.py",
+            "baseSHA256": "929243d8c24256938bf7bf465739ec9adbfd91cff3044e22ce578c31052a2b4d",
+            "sha256": "7ba5d6fba7c0db12d33f6094603dafd5c3923dcccbdaaf2135aef40eb03bf697"
+          }
+        ]
       }
     ]
   }

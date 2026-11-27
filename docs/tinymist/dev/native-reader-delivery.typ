@@ -662,3 +662,25 @@ The PR #34 disk window resize owner correction registers the following 1 path fr
 `2feb566d6124214c8c40136ac351b13acf98fea9`:
 `tests/flow-app/native-reader-app/TextInteractionTests.swift`.
 Hashes are Git-derived.
+
+The cross-project unification owner correction registers the following 17 paths from
+`0ae3e681fe2ad42b512dc10c983293e33957656d` →
+`876f7d5dd3c6e16479095fd945b84c06df7ba33b`:
+`docs/tinymist/dev/reader-architecture.typ`,
+`openspec/changes/add-cross-project-references/design.md`,
+`openspec/changes/add-cross-project-references/proposal.md`,
+`openspec/changes/add-cross-project-references/tasks.md`,
+`openspec/changes/unify-lagrangian-web-viewer/design.md`,
+`openspec/changes/unify-lagrangian-web-viewer/proposal.md`,
+`openspec/changes/unify-lagrangian-web-viewer/specs/reader-architecture/spec.md`,
+`openspec/changes/unify-lagrangian-web-viewer/specs/web-viewer/spec.md`,
+`openspec/changes/unify-lagrangian-web-viewer/tasks.md`,
+`tests/fixtures/cross-project-resolution.json`,
+`tests/flow-app/ProjectServiceTests.swift`,
+`tests/flow-app/test_project_service.py`,
+`tools/flow-reader/flow_reader/server/native_reader.py`,
+`tools/flow-reader/flow_reader/server/routing.py`,
+`tools/flow-reader/flow_reader/server/state.py`,
+`tools/flow-reader/flow_reader/services/cross_project_refs.py`,
+`tools/flow-reader/tests/test_cross_project_refs.py`.
+Hashes are Git-derived; the new shared fixture has a null base digest.
