@@ -291,6 +291,10 @@ extension NSPasteboard {
             "Return preparation retains selection and find interface")
         // A provider may reduce a batch to fit the preparation budget. Nodes
         // omitted from that result must still get their own later request.
+        let partialTarget = try view.textMap!.presentationRange(blockID: blocks[150].id, logical: 0..<source.displayText.utf16.count)
+        view.bodyTextView.scrollRangeToVisible(partialTarget)
+        try await waitFor("partial scenario viewport prepared") { view.preparedObjectIDs.contains(blocks[150].id) }
+        try await finishLazyPreparation(view)
         let buffer = view.scrollView.contentView.bounds.insetBy(dx: 0, dy: -view.scrollView.contentView.bounds.height)
         let partialIDs = Set(blocks.filter { node in
             view.rects(blockID: node.id, logical: 0..<source.displayText.utf16.count).contains { $0.intersects(buffer) }
@@ -568,15 +572,16 @@ extension NSPasteboard {
         let objectErrors: [Error] = [NativeObjectError.budget, NativeObjectError.invalidGeometry,
             NativeObjectError.unsupported("indivisible-math-overflow"), NativeReaderTextFailure.unsupportedObject("fixture")]
         for failure in objectErrors {
-            for failedIndex in [0, 1, 3] {
+            for failedIndex in [0, 1, -1] {
                 var requested = [NativeReaderNode](), failedID: String?, calls = 0
                 var painted = Set<String>()
                 retained.configureLazyObjects(key: key, initial: [:]) { nodes, current in
                     calls += 1
                     if requested.isEmpty {
                         requested = nodes
-                        try check(nodes.count > failedIndex, "viewport contains both split halves")
-                        failedID = nodes[failedIndex].id
+                        let resolvedIndex = failedIndex == -1 ? nodes.count - 1 : failedIndex
+                        try check(nodes.count > 1 && nodes.count > resolvedIndex, "viewport contains both split halves")
+                        failedID = nodes[resolvedIndex].id
                     }
                     if nodes.contains(where: { $0.id == failedID }) { throw failure }
                     return Dictionary(uniqueKeysWithValues: nodes.map { node in
