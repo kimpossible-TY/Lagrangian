@@ -91,18 +91,20 @@ struct NativeReaderPreparedTextObject {
         })
     }
     // Deterministic object failures may salvage siblings. Transient/system
-    // errors discard staged halves and reach the caller's bounded backoff;
+    // errors discard staged halves and reach the caller's bounded backoff,
+    // except timeouts isolated on the viewport's last allowed attempt;
     // cancellation/staleness abort. Worker batches themselves stay atomic.
     @MainActor static func prepareLazy(_ nodes: [NativeReaderNode],
         provider: ([NativeReaderNode]) async throws -> [String: Self],
-        bounded: Bool = false) async throws -> (objects: [String: Self], failures: Set<String>) {
+        bounded: Bool = false, isolatingTimeout: Bool = false) async throws -> (objects: [String: Self], failures: Set<String>) {
         func prepare(_ selected: [NativeReaderNode], isolating: Bool = false) async throws -> (objects: [String: Self], failures: Set<String>) {
             try Task.checkCancellation()
             do { return (try await provider(selected), []) }
             catch {
                 switch error {
                 case let failure as NativeObjectError:
-                    guard failure.classification.scope == .deterministic else { throw error }
+                    guard failure.classification.scope == .deterministic ||
+                        (isolatingTimeout && failure == .unsupported("math-helper-timeout")) else { throw error }
                 case NativeReaderTextFailure.unsupportedObject, NativeReaderTextFailure.invalidGeometry:
                     break
                 default: throw error
@@ -1058,10 +1060,12 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
         guard !missing.isEmpty else { return }
         lazyAttempted.formUnion(missing.map(\.id))
         let epoch = lazyEpoch
+        let isolatingTimeout = missing.contains { (lazyErrorCounts[$0.id] ?? 0) >= 2 }
         lazyTask = Task { [weak self] in
             var providerReturned = false
             do {
-                let result = try await NativeReaderPreparedTextObject.prepareLazy(missing) { try await provider($0, key) }
+                let result = try await NativeReaderPreparedTextObject.prepareLazy(missing,
+                    provider: { try await provider($0, key) }, isolatingTimeout: isolatingTimeout)
                 let values = result.objects
                 providerReturned = true
                 try Task.checkCancellation()
@@ -1100,8 +1104,8 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
                 }
                 if !Task.isCancelled {
                     // Initial attempt plus at most two retries per ID in this
-                    // viewport epoch. At the cap, attempted IDs stay placeholders
-                    // until the epoch resets; no isolated failures are recorded.
+                    // viewport epoch. The last attempt isolates timeout leaves;
+                    // other exhausted errors stay placeholders until epoch reset.
                     // Invalid returned results are never retryable.
                     if !providerReturned {
                         for node in missing {

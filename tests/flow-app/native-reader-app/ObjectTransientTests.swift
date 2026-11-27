@@ -9,8 +9,8 @@ private struct Failure: Error { let message: String }
     static let transientCodes = ["math-worker-busy", "math-helper-timeout", "math-helper-io",
         "math-helper-input", "math-helper-memory-observation", "math-runtime-missing",
         "math-runtime-not-delivered", "answer-math-runtime-not-delivered"]
-    static func document() -> NativeReaderDocument {
-        let blocks = (0..<4).map { index in
+    static func document(count: Int = 4) -> NativeReaderDocument {
+        let blocks = (0..<count).map { index in
             NativeReaderNode(id: "object-\(index)", sectionID: "section", kind: .math,
                 canonicalText: "x", displayText: "x", rangeUTF16: [0, 1], offsets: NativeTextOffsets("x"),
                 children: [], anchors: [], annotationTargets: [], visible: true, mapping: .unmapped,
@@ -84,6 +84,17 @@ private struct Failure: Error { let message: String }
             } catch let error as NativeObjectError {
                 try check(error == .unsupported(code) && calls == 3, "nested transient was isolated")
             }
+            if code != "math-helper-timeout" {
+                calls = 0
+                do {
+                    _ = try await NativeReaderPreparedTextObject.prepareLazy(doc.blocks, provider: { _ in
+                        calls += 1; throw NativeObjectError.unsupported(code)
+                    }, isolatingTimeout: true)
+                    throw Failure(message: "node-independent error isolated on last attempt: \(code)")
+                } catch let error as NativeObjectError {
+                    try check(error == .unsupported(code) && calls == 1, "last attempt split a node-independent error")
+                }
+            }
         }
         for failure in [NativeObjectError.invalidGeometry, .unsupported("math-helper-rejected")] {
             let badID = doc.blocks[1].id
@@ -94,6 +105,13 @@ private struct Failure: Error { let message: String }
             try check(result.failures == [badID] && Set(result.objects.keys) == Set(doc.blocks.map(\.id)).subtracting([badID]),
                       "deterministic isolation must record only the bad node")
         }
+        let badID = "object-1"
+        let result = try await NativeReaderPreparedTextObject.prepareLazy(doc.blocks, provider: { nodes in
+            if nodes.contains(where: { $0.id == badID }) { throw NativeObjectError.unsupported("math-helper-timeout") }
+            return values(nodes, key)
+        }, isolatingTimeout: true)
+        try check(result.failures == [badID] && Set(result.objects.keys) == Set(doc.blocks.map(\.id)).subtracting([badID]),
+                  "last-attempt timeout isolation must record only the timing-out leaf")
     }
     @MainActor static func viewport(_ mode: String, failure: Error = NativeObjectError.unsupported("math-helper-timeout")) async throws {
         let doc = document(), store = NativeReaderDocumentStore()
@@ -114,7 +132,7 @@ private struct Failure: Error { let message: String }
         }
         view.configureLazyObjects(key: key, initial: [:]) { nodes, current in
             calls += 1; batches.append(Set(nodes.map(\.id)))
-            if mode == "deterministic" {
+            if mode == "deterministic" || mode == "timeout-leaf" {
                 if nodes.contains(where: { $0.id == badID }) { throw failure }
             } else if mode == "cap" || mode == "obsolete" || calls <= (mode == "twice" ? 2 : 1) {
                 throw failure
@@ -133,10 +151,18 @@ private struct Failure: Error { let message: String }
             try check(batches.allSatisfy { $0 == expected } && view.preparedObjectIDs == expected,
                       "timeout must retry and publish ALL siblings without isolated failures")
         case "cap":
-            try check(calls == 3 && delays == [1, 2] && batches.allSatisfy { $0 == expected },
-                      "transient must stop after initial attempt plus two retries, without bisection")
+            try check(calls == 9 && delays == [1, 2] && Array(batches.prefix(3)) == Array(repeating: expected, count: 3),
+                      "all-timeout cap must bisect only on the last allowed attempt")
+            try check(batches.dropFirst(3).map(\.count) == [2, 1, 1, 2, 1, 1], "all-timeout cap must reach each failed leaf once")
             try check(view.preparedObjectIDs.isEmpty && view.preparedObjectCost == 0,
                       "retry exhaustion must leave placeholders")
+        case "timeout-leaf":
+            try check(delays == [1, 2] && calls == 7 && Array(batches.prefix(3)) == Array(repeating: expected, count: 3),
+                      "persistent timeout must bisect only on the last allowed attempt")
+            try check(Array(batches.dropFirst(3)) == [Set(["object-0", badID]), Set(["object-0"]), Set([badID]), Set(["object-2", "object-3"])],
+                      "last attempt must isolate the timing-out leaf and prepare healthy siblings")
+            try check(view.preparedObjectIDs == expected.subtracting([badID]) && view.preparedObjectCost == 3 * 1024,
+                      "only the timing-out leaf may remain a placeholder")
         case "deterministic":
             try check(delays.isEmpty && view.preparedObjectIDs == expected.subtracting([badID]),
                       "deterministic failure must publish siblings without backoff")
@@ -146,11 +172,58 @@ private struct Failure: Error { let message: String }
         default: throw Failure(message: "unknown viewport case")
         }
     }
+    @MainActor static func largeInitial() async throws {
+        let doc = document(count: NativeReaderPreparedTextObject.largeDocumentThreshold + 1)
+        let nodes = NativeReaderPreparedTextObject.initialNodes(in: doc)
+        try check(NativeReaderPreparedTextObject.isLarge(doc) && nodes.count == 128, "test must use the large initial path")
+        let store = NativeReaderDocumentStore(), view = NativeReaderTextView(store: store)
+        defer { view.dispose() }
+        view.setFrameSize(NSSize(width: 640, height: 600))
+        view.preparesViewedWindowsOnly = true
+        let context = NativeReaderRequestContext(requestID: UUID(), viewID: store.viewID,
+            generation: try store.beginRequest(), target: doc.identity)
+        let key = try view.preparationKey(for: doc, context: context)
+        var calls = 0, delays = [Int]()
+        let initial = try await NativeReaderWindowController.prepareInitialLazyObjects(nodes) { selected in
+            calls += 1
+            try check(selected.count == 128, "initial preparation must retain its object bound")
+            throw NativeObjectError.unsupported("math-helper-timeout")
+        }
+        try check(calls == 1 && initial.isEmpty, "initial timeout must permit adoption without objects")
+        try view.adopt(doc, context: context)
+        view.layoutSubtreeIfNeeded()
+        try check(store.document == doc && view.preparedObjectIDs.isEmpty, "large document must adopt placeholders")
+        view.lazyRetryDelay = { delay in
+            delays.append(delay)
+            try check(view.preparedObjectIDs.isEmpty, "viewport timeout must not publish partial paint")
+        }
+        view.configureLazyObjects(key: key, initial: initial) { selected, current in
+            calls += 1
+            if calls <= 3 { throw NativeObjectError.unsupported("math-helper-timeout") }
+            return values(selected, current)
+        }
+        try await finish(view)
+        try check(delays == [1, 2] && !view.preparedObjectIDs.isEmpty && store.document == doc,
+                  "adopted large document must publish objects through viewport backoff")
+        for failure in [NativeObjectError.cancelled, .stale, .unsupported("math-helper-rejected")] {
+            do {
+                _ = try await NativeReaderWindowController.prepareInitialLazyObjects(Array(nodes.prefix(1))) { _ in throw failure }
+                throw Failure(message: "initial preparation swallowed \(failure)")
+            } catch let error as NativeObjectError {
+                try check(error == failure, "initial preparation changed the propagated error")
+            }
+        }
+        do {
+            _ = try await NativeReaderWindowController.prepareInitialLazyObjects(nodes) { _ in throw CancellationError() }
+            throw Failure(message: "initial preparation swallowed cancellation")
+        } catch is CancellationError {}
+    }
     @MainActor static func main() async throws {
         _ = NSApplication.shared.setActivationPolicy(.prohibited)
         switch CommandLine.arguments[1] {
         case "classification": try classification()
         case "propagation": try await propagation()
+        case "large-initial": try await largeInitial()
         case "deterministic":
             for error in [NativeObjectError.invalidGeometry, .unsupported("math-helper-rejected")] {
                 try await viewport("deterministic", failure: error)

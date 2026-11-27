@@ -44,7 +44,9 @@ class ObjectTransient(unittest.TestCase):
     def test_transient_preparation_propagates_without_isolation(self): self.scenario('propagation')
     def test_timeout_once_retries_and_publishes_all_siblings(self): self.scenario('once')
     def test_two_timeouts_use_both_backoff_delays(self): self.scenario('twice')
-    def test_persistent_transient_stops_at_cap_without_isolation(self): self.scenario('cap')
+    def test_persistent_timeout_isolates_leaf_on_last_attempt(self): self.scenario('timeout-leaf')
+    def test_all_timeouts_stop_at_cap_with_placeholders(self): self.scenario('cap')
+    def test_large_initial_timeout_adopts_then_retries_in_viewport(self): self.scenario('large-initial')
     def test_deterministic_failure_isolates_only_bad_node(self): self.scenario('deterministic')
     def test_cancel_and_stale_abort_without_backoff(self): self.scenario('obsolete')
 
