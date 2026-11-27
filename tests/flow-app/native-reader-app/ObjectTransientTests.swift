@@ -132,6 +132,29 @@ private struct Failure: Error { let message: String }
             }
         }
     }
+    @MainActor static func singleTimeoutLeaf() async throws {
+        let doc = document(count: 128), badID = "object-1"
+        let key = NativeReaderTextRenderKey(identity: doc.identity, documentGeneration: 1,
+            viewID: UUID(), layoutGeneration: 1, width: 640, appearance: .init())
+        var batches = [[String]](), timedOutCalls = 0
+        let result = try await NativeReaderPreparedTextObject.prepareLazy(doc.blocks, provider: { nodes in
+            batches.append(nodes.map(\.id))
+            if nodes.contains(where: { $0.id == badID }) {
+                timedOutCalls += 1
+                throw NativeObjectError.unsupported("math-helper-timeout")
+            }
+            return values(nodes, key)
+        }, isolatingTimeout: true)
+        try check(timedOutCalls == 8, "one slow leaf in 128 objects must time out eight provider calls")
+        try check(batches.count == 15, "eight timeouts plus seven successful sibling calls must total fifteen calls")
+        try check(result.failures == [badID] && result.objects.count == 127 &&
+                  Set(result.objects.keys) == Set(doc.blocks.map(\.id)).subtracting([badID]),
+                  "only the slow leaf may fail; all 127 healthy objects must return")
+        let expectedRanges = [0..<128, 0..<64, 0..<32, 0..<16, 0..<8, 0..<4, 0..<2,
+                              0..<1, 1..<2, 2..<4, 4..<8, 8..<16, 16..<32, 32..<64, 64..<128]
+        try check(batches == expectedRanges.map { range in range.map { doc.blocks[$0].id } },
+                  "timeout isolation must visit left first, splitting at count / 2")
+    }
     @MainActor static func viewport(_ mode: String, failure: Error = NativeObjectError.unsupported("math-helper-timeout")) async throws {
         let doc = document(), store = NativeReaderDocumentStore()
         let view = NativeReaderTextView(store: store)
@@ -244,6 +267,7 @@ private struct Failure: Error { let message: String }
         case "classification": try classification()
         case "propagation": try await propagation()
         case "timeout-budget": try await timeoutBudget()
+        case "timeout-single-leaf": try await singleTimeoutLeaf()
         case "large-initial": try await largeInitial()
         case "deterministic":
             for error in [NativeObjectError.invalidGeometry, .unsupported("math-helper-rejected")] {

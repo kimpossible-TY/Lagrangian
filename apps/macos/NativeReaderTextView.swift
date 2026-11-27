@@ -97,6 +97,8 @@ struct NativeReaderPreparedTextObject {
     @MainActor static func prepareLazy(_ nodes: [NativeReaderNode],
         provider: ([NativeReaderNode]) async throws -> [String: Self],
         bounded: Bool = false, isolatingTimeout: Bool = false) async throws -> (objects: [String: Self], failures: Set<String>) {
+        // The +1 lets one slow leaf isolate: 1 + ceil(log2(n)) timeouts <= budget - 1.
+        // Two slow leaves in different halves exhaust the budget and throw.
         var timeoutBudget = isolatingTimeout ? 2 * Int(ceil(log2(Double(max(nodes.count, 2))))) + 1 : 0
         func prepare(_ selected: [NativeReaderNode], isolating: Bool = false) async throws -> (objects: [String: Self], failures: Set<String>) {
             try Task.checkCancellation()

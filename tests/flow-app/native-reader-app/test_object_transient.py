@@ -47,6 +47,7 @@ class ObjectTransient(unittest.TestCase):
     def test_persistent_timeout_isolates_leaf_on_last_attempt(self): self.scenario('timeout-leaf')
     def test_all_timeouts_stop_within_budget_with_placeholders(self): self.scenario('cap')
     def test_all_timeouts_exhaust_logarithmic_preparation_budget(self): self.scenario('timeout-budget')
+    def test_single_timeout_leaf_in_128_objects_preserves_siblings(self): self.scenario('timeout-single-leaf')
     def test_large_initial_timeout_adopts_then_retries_in_viewport(self): self.scenario('large-initial')
     def test_deterministic_failure_isolates_only_bad_node(self): self.scenario('deterministic')
     def test_cancel_and_stale_abort_without_backoff(self): self.scenario('obsolete')
