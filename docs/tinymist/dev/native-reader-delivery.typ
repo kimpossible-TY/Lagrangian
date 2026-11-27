@@ -646,3 +646,13 @@ The PR #34 timeout budget owner correction registers the following 5 paths from
 `tests/flow-app/native-reader-app/TextInteractionTests.swift`,
 `tests/flow-app/native-reader-app/test_object_transient.py`.
 Hashes are Git-derived.
+
+The PR #34 third review owner correction registers the following 5 paths from
+`3cf765897bf11f1ea8090eb6cdf337f3fa95d42c` →
+`085e209f13fb6d294b5588f3592566415a5a6271`:
+`apps/macos/NativeReaderTextView.swift`,
+`openspec/changes/implement-native-reader-app/specs/native-reader/spec.md`,
+`tests/flow-app/native-reader-app/ObjectTransientTests.swift`,
+`tests/flow-app/native-reader-app/TextInteractionTests.swift`,
+`tests/flow-app/native-reader-app/test_object_transient.py`.
+Hashes are Git-derived.
