@@ -29,7 +29,7 @@ The commit containing this change is the common contract SHA; consumers record `
 
 ### Units, geometry and operation lifetime
 
-Canonical text is the exact accepted HTML descendant scalar sequence, not raw Typst. Display text currently equals canonical scalars, including math text; there are no object placeholders. MathML retains mathematical hierarchy while the plain string alone does not describe a fraction. Whitespace normalization is only the explicitly named `math.normalizedText`. NFC/NFD scalars are preserved. UTF8 maps count bytes, codepoints mean Unicode scalars, UTF16 maps count code units. Node ranges are half-open **block-local** UTF16; per-node offset maps are local to that node's string. Child ranges partition the parent's range in order. User endpoints are extended grapheme boundaries, computed by Swift; surrogate/combining/ZWJ splits are invalid. Source offsets remain in the existing private mapping owner, never conflated with display offsets.
+Canonical text is the exact accepted HTML descendant scalar sequence, not raw Typst. Display text equals canonical scalars, including math text; visual lazy placeholders do not replace these semantic strings. MathML retains mathematical hierarchy while the plain string alone does not describe a fraction. Whitespace normalization is only the explicitly named `math.normalizedText`; native MathML serialization has the additional normalization described below. NFC/NFD scalars are preserved. UTF8 maps count bytes, codepoints mean Unicode scalars, UTF16 maps count code units. Node ranges are half-open **block-local** UTF16; per-node offset maps are local to that node's string. Child ranges partition the parent's range in order. User endpoints are extended grapheme boundaries, computed by Swift; surrogate/combining/ZWJ splits are invalid. Source offsets remain in the existing private mapping owner, never conflated with display offsets.
 
 Semantic model contains no UI geometry. NA02 owns top-left AppKit point geometry and text/AX; NA03 owns object metrics, native paint and hit-testing under explicit width/font inputs. Trees preserve inline order, table groups/rows/cells, numbering, labels and annotation relationships so paint/selection/AX can use the same IDs. `visible` and `mapping` are explicit; unsupported visibility semantics are rejected, never guessed. Current importer emits visible/unmapped nodes only. Paged coordinates are separate and require an accepted revision match.
 
@@ -765,15 +765,81 @@ existing accepted anchors, with uniqueness still enforced.
 
 The pinned math helper accepts kind mathml-batch with 1–512 items and at most
 64 MiB JSON input/output. Each item has at most 256 KiB JSON input, a 65536-byte
-source and 8 MiB output. Swift/helper bounds are cross-checked by Python tests;
-the helper bytes and existing pins are unchanged. Swift caps batch stdout at
+source and 8 MiB output. Swift/helper bounds are cross-checked by Python tests.
+The helper implementation has since changed to share its runtime within a batch;
+the MathJax/NewCM version pins remain 4.1.3. Swift caps batch stdout at
 min(64 MiB, itemCount × 8 MiB) plus the terminating newline, and scales the base
 timeout by min(itemCount, 6). Timeout/input-limit/budget failures halve chunks
 within an overall per-chunk deadline of twice the initial timeout. Each child
 receives at most the remaining time. Deterministic per-item output-limit fails
-without splitting. A failing single item or exhausted deadline throws; atomic
-snapshot preparation does not publish successful sub-ranges of a failed batch.
+without splitting. A failing single item or exhausted deadline throws; the
+worker batch does not publish successful sub-ranges of a failed batch.
 Other errors do not trigger splitting.
+
+## Native math and lazy preparation post-review corrections (S1/S2)
+
+The helper creates one MathJax runtime per process/request, shared by all items
+of a mathml-batch. Font, outputJax and MathJax document are reused, and
+outputJax.lastWrapper is reset before each item. Both runtime.loaded (dynamic
+font modules) and runtime.moduleFiles (require cache inventory) are cumulative
+within that helper process/batch, not per-item deltas; an item's inventory can
+include modules loaded for earlier items. The helper bytes therefore differ
+from the earlier implementation even though the dependency versions are unchanged.
+
+The accepted-document importer validates the supported MathML element/attribute
+vocabulary before discarding class, mathsize, mathcolor and mathbackground.
+Nested math becomes mrow with display/xmlns removed; the outer math is retained.
+MathML text serialization removes U+FE00–FE0F variation selectors. Native math
+therefore drops these presentation color/size/background settings and selector
+distinctions. canonicalText/displayText and offset maps retain accepted scalars;
+normalizedText retains selectors while normalizing whitespace. Serialized MathML
+text need not equal canonicalText byte-for-byte. This records current import
+behavior and does not change importer or helper policy in this correction.
+
+NativeObjectError.classification owns one recovery table in
+NativeReaderObjectRenderer.swift, consumed by NativeMathBatchPolicy,
+NativeReaderPreparedTextObject.prepareLazy and the TextView viewport catch:
+
+- Transient/node-independent: math-worker-busy, math-helper-timeout,
+  math-helper-io, math-helper-input (stdin I/O), math-helper-memory-observation,
+  math-runtime-missing, math-runtime-not-delivered and the answer-only
+  answer-math-runtime-not-delivered. These never become isolated leaf failures.
+- Obsolete: cancelled/stale. These abort without isolation or backoff, as do
+  CancellationError and NativeReaderTextFailure.staleGeometry.
+- Deterministic: invalidGeometry, budget and remaining unsupported codes,
+  including unsupported-object, math-helper-rejected, SVG/raster validation,
+  input-limit and output-limit. Lazy multi-object preparation bisects these;
+  a failed leaf reached by bisection is omitted and its ID is recorded in the
+  returned failures set. An unsplit singleton still throws.
+
+The table separately marks only timeout, budget and input-limit for worker
+chunk splitting. This preserves the existing cumulative deadline and immediate
+output-limit behavior; transient does not mean every error should split a batch.
+No staged half is returned when another half throws transient/cancel/stale.
+Viewport failures reach the existing per-ID initial attempt plus two retries,
+using injected delay multipliers [1, 2] (50/100 ms by default). After exhaustion,
+attempted IDs remain placeholders until the viewport/layout epoch resets. They
+are suppressed by attempt/error-count state, without a deterministic failures
+result. Invalid returned metrics are rejected transactionally without retry.
+
+Eager small-document preparation still requires all objects. Large/recovery
+initial preparation instead passes up to 128 object units through prepareLazy
+with bounded cache admission (16 MiB); viewed-window mode can start empty.
+Valid siblings are salvaged and excess objects or isolated deterministic failures
+are omitted. Thus candidate B can replace painted A on this path with invalid
+objects that failed deterministic preparation represented by lazy placeholders.
+Invalid returned metrics still reject B at final composition, and any unisolated
+error (including an unsplit singleton, transient, cancel or stale) prevents
+adoption. The initial failures set is not carried into configureLazyObjects,
+so omitted objects can be attempted again when visible. Semantic validation,
+selection holds, freshness checks and final adoption remain atomic. This does
+not restore the old prepareObjects budget-prefix-halving loop or change cache
+admission order and preparation cost.
+
+Self-contained ObjectTransientTests exercises actual AppKit viewport preparation
+with an injected delay, alongside direct preparation/classification checks;
+it needs no external compiler fixture or math runtime. It is source behavior
+coverage, not interactive GUI or delivery acceptance.
 
 
 ## NRD01B reader integration
