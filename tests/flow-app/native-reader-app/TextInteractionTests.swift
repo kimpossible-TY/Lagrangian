@@ -795,7 +795,10 @@ extension NSPasteboard {
                     try view.setAppearance(.init(fontSize: font, zoom: 1, theme: theme))
                     try check(!painted, "layout must not acknowledge paint")
                     let key = view.renderKey!
-                    try check(key.width <= width && key.width > width - 70, "body width")
+                    let effectiveSize = view.textAppearance.effectiveSize
+                    let pad: CGFloat = width <= 640 ? 20 : 28
+                    let expected = min(min(720, max(680, effectiveSize * 45)), width - 2 * pad)
+                    try check(abs(key.width - expected) <= 0.5, "body width")
                     try check(view.bodyTextView.isEditable == false, "read-only native body")
                     try check(view.logicalText.unicodeScalars.map(\.value) == oracleTexts.joined(separator: "\n").unicodeScalars.map(\.value), "exact scalar preservation")
                     for item in oracleUnicode {
