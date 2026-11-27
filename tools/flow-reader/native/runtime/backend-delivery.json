@@ -2394,6 +2394,47 @@
             "sha256": "c6d8155bb027e2ab8afe66848b24f47b73c533d2d6293e2ed8ae356a0164c474"
           }
         ]
+      },
+      {
+        "revision": "e655167872306fb69d52c5371f09ab613e3a55ec",
+        "baseRevision": "7aa07ba43765417b2909a9f5d8dbf59665a0262d",
+        "files": [
+          {
+            "path": "apps/macos/NativeReaderObjectRenderer.swift",
+            "baseSHA256": "c44ad6d4dca4fc53758af739b1d9f8d9d3b49757063a8b4fa9ace338257f1138",
+            "sha256": "a31ee3a38c066cb62a762412d124ab2aa58e7e4f263b0efa007873e0b8903737"
+          },
+          {
+            "path": "apps/macos/NativeReaderTextView.swift",
+            "baseSHA256": "a802dbb419fe9908406dbe85a60631d7fc9bee78b0ce4bfb23441b88c2502d8d",
+            "sha256": "ec2416481808ce439196d9878d4d714997aae40e3aa17507b3f0d7e6484ecc1b"
+          },
+          {
+            "path": "openspec/changes/implement-native-reader-app/design.md",
+            "baseSHA256": "b1f7c2c3d2fcd85c93dc36c3feba7bcd4eacc5cca06e3e1b686039c11a3f795b",
+            "sha256": "4dd86785d9edba5e4267430b97bbf30808b5a92e98f3858393075d085f0e5f2c"
+          },
+          {
+            "path": "openspec/changes/implement-native-reader-app/specs/native-reader/spec.md",
+            "baseSHA256": "3899dcd14aaf4dc1d5d77eac4fdf659fa173c310730cece090c3208375d49890",
+            "sha256": "35ac162423846d673c97e3aa5fc42a578384857757e295dbd5a77816b94d1ff8"
+          },
+          {
+            "path": "openspec/changes/implement-native-reader-app/tasks.md",
+            "baseSHA256": "db1aeddf6cf0ae1bca374287587b80749a35a1a1e66fca3374adcba2e045130f",
+            "sha256": "89dc05caf3a6e5ae39f9af261b3162c969703ed9f07984e513597f4e48bcc675"
+          },
+          {
+            "path": "tests/flow-app/native-reader-app/ObjectTransientTests.swift",
+            "baseSHA256": null,
+            "sha256": "4e2c90527ec8136b9bed4329e7b2df138777978534c6d711c9a12d1bfaac2a36"
+          },
+          {
+            "path": "tests/flow-app/native-reader-app/test_object_transient.py",
+            "baseSHA256": null,
+            "sha256": "7687638521dfa5332efaeac2d8bd09554ecbd3804be93c0f58a062d1e6f8f201"
+          }
+        ]
       }
     ]
   }

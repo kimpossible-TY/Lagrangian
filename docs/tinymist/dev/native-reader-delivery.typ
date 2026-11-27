@@ -611,3 +611,15 @@ The native reader design parity owner correction registers the following 21 path
 `tests/flow-app/native-reader-app/test_native_design_parity.py`,
 `tests/flow-app/native-reader-app/test_native_floating_capsule.py`.
 Hashes are Git-derived.
+
+The transient object classification owner correction registers the following 7 paths from
+`7aa07ba43765417b2909a9f5d8dbf59665a0262d` →
+`e655167872306fb69d52c5371f09ab613e3a55ec`:
+`apps/macos/NativeReaderObjectRenderer.swift`,
+`apps/macos/NativeReaderTextView.swift`,
+`openspec/changes/implement-native-reader-app/design.md`,
+`openspec/changes/implement-native-reader-app/specs/native-reader/spec.md`,
+`openspec/changes/implement-native-reader-app/tasks.md`,
+`tests/flow-app/native-reader-app/ObjectTransientTests.swift`,
+`tests/flow-app/native-reader-app/test_object_transient.py`.
+Hashes are Git-derived.
