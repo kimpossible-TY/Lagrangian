@@ -764,3 +764,10 @@ The mixed-style link hover owner correction registers the following 3 paths from
 `tests/flow-app/native-reader-app/NativeDesignParityTests.swift`,
 `tests/flow-app/native-reader-app/test_native_design_parity.py`.
 Hashes are Git-derived.
+
+The parallel artifact download review owner correction registers the following 1 path from
+`18935acb3c5cefd80ec29496799b6ba89ded3492` →
+`d2401ca99d9f8ddf3982259037b74aa2de5916d7`:
+`tests/flow-app/test_app.py`.
+The other 9 changed paths are delivery-owned and are checked against exact HEAD blobs.
+Hashes are Git-derived.
