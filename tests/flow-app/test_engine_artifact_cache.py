@@ -184,7 +184,7 @@ class FreshApplicationCacheBoundaryTests(unittest.TestCase):
         upload=workflow.split('- name: Upload Apple Silicon flow engine',1)[1].split('- name: Upload engine input hash',1)[0]
         self.assertIn('native-delivery-artifact.tar',upload)
         self.assertIn('native-delivery-artifact.json',upload)
-        self.assertIn('compression-level: 0',upload)
+        self.assertIn('compression-level: 6',upload)
 
     def test_cache_hit_discards_previous_app_and_rejects_corrupt_engine(self):
         import hashlib

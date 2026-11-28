@@ -196,7 +196,7 @@ jobs:
             dist/flow-engine-darwin-arm64/native-delivery-artifact.tar
           retention-days: 30
           if-no-files-found: error
-          compression-level: 0
+          compression-level: 6
 
       - name: Upload engine input hash
         uses: actions/upload-artifact@v4

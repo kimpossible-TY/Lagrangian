@@ -4,6 +4,7 @@ GitHub zip permissions apply only to two transport files, never the signed tree.
 This is not GitHub authority: callers authenticate R/H with flow_engine_runs.
 """
 from contextlib import contextmanager
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import importlib.util
 import json
@@ -11,6 +12,11 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
+import urllib.error
+import urllib.parse
+import urllib.request
+import zipfile
 import tarfile
 import tempfile
 
@@ -28,6 +34,149 @@ MAX_TOTAL = 2 * 1024**3
 MAX_MANIFEST = 16 * 1024**2
 FIELDS = {'schemaVersion', 'format', 'repository', 'runId', 'sourceRevision', 'archive',
           'archiveSHA256', 'inventorySHA256', 'inventory'}
+
+
+
+def download_concurrency():
+    try:
+        value = int(os.environ.get('FLOW_DOWNLOAD_CONCURRENCY', '8'))
+    except ValueError:
+        value = 8
+    return max(1, min(16, value))
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def _artifact_url(repo, run_id, artifact_name, capture_gh):
+    if not re.fullmatch(r'[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+', repo) or not re.fullmatch(r'[1-9][0-9]*', str(run_id)):
+        raise ValueError('Invalid artifact identity')
+    pages = json.loads(capture_gh(['gh', 'api', '--paginate', '--slurp',
+                                   f'repos/{repo}/actions/runs/{run_id}/artifacts?per_page=100']))
+    artifacts = [a for page in pages for a in page['artifacts']
+                 if a.get('name') == artifact_name and a.get('expired') is False]
+    if len(artifacts) != 1 or type(artifacts[0].get('id')) is not int or artifacts[0]['id'] <= 0:
+        raise ValueError('Artifact missing or ambiguous')
+    token = capture_gh(['gh', 'auth', 'token'])
+    if not token or '\n' in token or '\r' in token:
+        raise ValueError('Invalid GitHub token')
+    url = f"https://api.github.com/repos/{repo}/actions/artifacts/{artifacts[0]['id']}/zip"
+    request = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + token,
+                                                 'Accept': 'application/vnd.github+json'})
+    try:
+        with urllib.request.build_opener(_NoRedirect()).open(request, timeout=30):
+            raise ValueError('Artifact API did not redirect')
+    except urllib.error.HTTPError as error:
+        if error.code not in (301, 302, 303, 307, 308):
+            raise ValueError('Artifact API redirect failed') from None
+        target = error.headers.get('Location', '')
+        error.close()
+    parsed = urllib.parse.urlsplit(target)
+    if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password:
+        raise ValueError('Invalid artifact redirect')
+    return target
+
+
+def _extract_zip(archive, dest):
+    with zipfile.ZipFile(archive) as source:
+        entries = source.infolist()
+        if len(entries) > 64:
+            raise ValueError('ZIP entry budget exceeded')
+        total = 0
+        names = set()
+        for info in entries:
+            name = info.filename.rstrip('/')
+            if (not name or name.startswith('/') or '\\' in name or
+                    any(part in ('', '.', '..') for part in name.split('/')) or
+                    re.match(r'^[A-Za-z]:', name)):
+                raise ValueError('Unsafe ZIP path')
+            mode = info.external_attr >> 16
+            kind = stat.S_IFMT(mode)
+            if kind not in (0, stat.S_IFREG, stat.S_IFDIR) or (kind == stat.S_IFDIR) != info.is_dir() and kind != 0:
+                raise ValueError('Unsafe ZIP entry type')
+            if name in names:
+                raise ValueError('Duplicate ZIP path')
+            names.add(name)
+            total += info.file_size
+            if info.file_size > MAX_ARCHIVE or total > MAX_ARCHIVE + MAX_MANIFEST:
+                raise ValueError('ZIP byte budget exceeded')
+        for info in entries:
+            target = dest / info.filename.rstrip('/')
+            if info.is_dir():
+                target.mkdir(parents=True, exist_ok=True)
+            else:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with source.open(info) as src, target.open('xb') as out:
+                    shutil.copyfileobj(src, out, length=1024 * 1024)
+
+
+def download_artifact(repo, run_id, artifact_name, dest, *, fallback_run, capture_gh):
+    """Download an Actions ZIP in bounded ranges, or use the existing gh fallback."""
+    dest = Path(dest)
+    if dest.is_symlink() or not dest.is_dir():
+        raise ValueError('Download destination must be a directory')
+
+    def clean():
+        for entry in dest.iterdir():
+            if entry.is_dir() and not entry.is_symlink():
+                shutil.rmtree(entry)
+            else:
+                entry.unlink()
+
+    def fallback():
+        clean()
+        return fallback_run(['gh', 'run', 'download', str(run_id), '--repo', repo,
+                             '--name', artifact_name, '--dir', dest])
+
+    clean()
+    concurrency = download_concurrency()
+    if concurrency <= 1:
+        return fallback()
+    try:
+        url = _artifact_url(repo, run_id, artifact_name, capture_gh)
+        with urllib.request.urlopen(urllib.request.Request(url, method='HEAD'), timeout=30) as response:
+            if response.headers.get('Accept-Ranges', '').lower().strip() != 'bytes':
+                raise ValueError('Range requests unavailable')
+            size = int(response.headers.get('Content-Length', '0'))
+            if not 0 < size <= MAX_ARCHIVE:
+                raise ValueError('Invalid archive size')
+        with tempfile.TemporaryDirectory(prefix='artifact-ranges-') as tmp:
+            archive = Path(tmp) / 'artifact.zip'
+            count = min(size, concurrency)
+            def chunk(index):
+                start, end = size * index // count, size * (index + 1) // count - 1
+                for attempt in range(3):
+                    try:
+                        req = urllib.request.Request(url, headers={'Range': f'bytes={start}-{end}'})
+                        with urllib.request.urlopen(req, timeout=30) as response:
+                            if response.status != 206 or response.headers.get('Content-Range') != f'bytes {start}-{end}/{size}':
+                                raise ValueError('Invalid range response')
+                            remaining = end - start + 1
+                            with (Path(tmp) / str(index)).open('wb') as out:
+                                while remaining:
+                                    data = response.read(min(1024 * 1024, remaining))
+                                    if not data:
+                                        raise ValueError('Truncated range')
+                                    out.write(data); remaining -= len(data)
+                                if response.read(1):
+                                    raise ValueError('Oversized range')
+                        return
+                    except (OSError, ValueError, urllib.error.URLError) as error:
+                        if isinstance(error, urllib.error.HTTPError):
+                            error.close()
+                        if attempt == 2:
+                            raise
+            with ThreadPoolExecutor(max_workers=count) as executor:
+                list(executor.map(chunk, range(count)))
+            with archive.open('wb') as out:
+                for index in range(count):
+                    with (Path(tmp) / str(index)).open('rb') as part:
+                        shutil.copyfileobj(part, out, length=1024 * 1024)
+            _extract_zip(archive, dest)
+    except Exception:
+        return fallback()
 
 
 def owner():

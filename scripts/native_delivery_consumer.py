@@ -101,8 +101,7 @@ def consume(package, engine, explicit=None, management_only=False):
     with tempfile.TemporaryDirectory(prefix='native-consumer-') as tmp:
         work = Path(tmp)
         downloaded = work / 'artifact'; downloaded.mkdir()
-        package.run(['gh', 'run', 'download', c['runId'], '--repo', repo,
-                     '--name', package.ENGINE_ARTIFACT, '--dir', downloaded])
+        package.download_engine_artifact(repo, c['runId'], downloaded)
         artifact = artifact_transport.unpack(downloaded, work / 'payload', repository=repo,
             run_id=c['runId'], head=c['runHeadSHA'])
         owner.require(context(package, artifact, engine.parent, repo, record, engine_normalized=False) == c,

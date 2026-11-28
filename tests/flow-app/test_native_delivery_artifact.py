@@ -1,4 +1,5 @@
 """Bounded native tar transport, using the shared reader archive owner. No Swift/CI."""
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import hashlib
 import io
 import json
@@ -8,6 +9,10 @@ import shutil
 import sys
 import tarfile
 import tempfile
+import threading
+import zipfile
+import urllib.error
+from email.message import Message
 import unittest
 from unittest.mock import patch
 
@@ -193,6 +198,117 @@ class NativeArtifactTests(unittest.TestCase):
         with patch.object(artifact,'verify_transport',drift),self.assertRaises(ValueError):
             artifact.pack(self.payload,self.output,repository='fixture/repo',run_id='17',head=self.head)
         self.assertEqual(self.tree(self.output),self.original)
+
+
+class ParallelDownloadTests(unittest.TestCase):
+    tree = staticmethod(NativeArtifactTests.tree)
+
+    def setUp(self):
+        NativeArtifactTests.setUp(self)
+        data = io.BytesIO()
+        with zipfile.ZipFile(data, 'w', zipfile.ZIP_DEFLATED) as archive:
+            for file in self.output.iterdir():
+                archive.write(file, file.name)
+        self.data = data.getvalue()
+        self.ranges = []; self.fail_once = False; self.truncate = False; self.accept_ranges = True
+        self.auth = []; test = self
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args): pass
+            def do_HEAD(self):
+                test.auth.append(self.headers.get('Authorization'))
+                self.send_response(200)
+                if test.accept_ranges: self.send_header('Accept-Ranges', 'bytes')
+                self.send_header('Content-Length', str(len(test.data))); self.end_headers()
+            def do_GET(self):
+                test.auth.append(self.headers.get('Authorization'))
+                value = self.headers.get('Range'); test.ranges.append(value)
+                start, end = map(int, value.removeprefix('bytes=').split('-'))
+                if test.fail_once:
+                    test.fail_once = False; self.send_error(500); return
+                body = test.data[start:end + 1]
+                self.send_response(206)
+                self.send_header('Content-Range', f'bytes {start}-{end}/{len(test.data)}')
+                self.send_header('Content-Length', str(len(body))); self.end_headers()
+                self.wfile.write(body[:-1] if test.truncate else body)
+        self.server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True); self.thread.start()
+        self.addCleanup(self.server.server_close); self.addCleanup(self.thread.join); self.addCleanup(self.server.shutdown)
+        self.url = f'http://127.0.0.1:{self.server.server_port}/blob'
+        self.dest = self.root/'download'; self.dest.mkdir(); self.fallbacks = []
+
+    def download(self):
+        def fallback(args):
+            self.fallbacks.append((args, list(self.dest.iterdir())))
+            (self.dest/'fallback').write_text('used')
+        with patch.object(artifact, '_artifact_url', return_value=self.url), patch.dict(os.environ, FLOW_DOWNLOAD_CONCURRENCY='4'):
+            artifact.download_artifact('fixture/repo', '17', 'engine', self.dest, fallback_run=fallback, capture_gh=lambda _: None)
+
+    def test_parallel_deflated_unpack_and_retry(self):
+        self.fail_once = True; self.download()
+        self.assertFalse(self.fallbacks); self.assertGreaterEqual(len(self.ranges), 5)
+        self.assertTrue(all(x is None for x in self.auth))
+        restored = artifact.unpack(self.dest, self.root/'restored', repository='fixture/repo', run_id='17', head=self.head)
+        self.assertEqual(artifact.inventory(restored, cached=True), artifact.inventory(self.payload))
+
+    def test_preflight_and_truncated_fallback_clean_destination(self):
+        for failure in ('preflight', 'truncated'):
+            with self.subTest(failure=failure):
+                (self.dest/'stale').write_text('old')
+                self.accept_ranges = failure != 'preflight'; self.truncate = failure == 'truncated'
+                self.download(); self.assertEqual(self.fallbacks[-1][1], [])
+                self.assertEqual([p.name for p in self.dest.iterdir()], ['fallback'])
+                (self.dest/'fallback').unlink()
+
+    def test_unsafe_zip_falls_back_cleanly(self):
+        for name, mode, body in [('../escape', 0, b'x'), ('/absolute', 0, b'x'),
+                                 ('link', 0o120777, b'target'), ('large', 0, b'1234')]:
+            data = io.BytesIO()
+            with zipfile.ZipFile(data, 'w', zipfile.ZIP_DEFLATED) as z:
+                info = zipfile.ZipInfo(name); info.external_attr = mode << 16
+                z.writestr(info, body)
+            self.data = data.getvalue()
+            with self.subTest(name=name), patch.object(artifact, 'MAX_ARCHIVE', 3 if name == 'large' else artifact.MAX_ARCHIVE):
+                (self.dest/'stale').write_text('old'); self.download()
+                self.assertEqual(self.fallbacks[-1][1], [])
+                (self.dest/'fallback').unlink()
+        self.assertFalse((self.root/'escape').exists())
+
+    def test_zip_uncompressed_byte_and_entry_budgets(self):
+        archive = self.root/'budget.zip'
+        with zipfile.ZipFile(archive, 'w', zipfile.ZIP_DEFLATED) as z:
+            z.writestr('large', b'x' * 2000)
+        with patch.object(artifact, 'MAX_ARCHIVE', 1000), self.assertRaises(ValueError):
+            artifact._extract_zip(archive, self.dest)
+        with zipfile.ZipFile(archive, 'w') as z:
+            for i in range(65): z.writestr(str(i), b'')
+        with self.assertRaises(ValueError): artifact._extract_zip(archive, self.dest)
+        self.assertEqual(list(self.dest.iterdir()), [])
+
+    def test_concurrency_parsing_and_direct_fallback(self):
+        for value, expected in [('garbage', 8), ('-1', 1), ('0', 1), ('1', 1), ('99', 16), ('4', 4)]:
+            with patch.dict(os.environ, FLOW_DOWNLOAD_CONCURRENCY=value):
+                self.assertEqual(artifact.download_concurrency(), expected)
+        with patch.dict(os.environ, FLOW_DOWNLOAD_CONCURRENCY='1'):
+            (self.dest/'stale').write_text('old')
+            artifact.download_artifact('fixture/repo', '17', 'engine', self.dest,
+                fallback_run=lambda args: self.assertEqual(list(self.dest.iterdir()), []),
+                capture_gh=lambda _: self.fail('unexpected API'))
+
+    def test_api_redirect_does_not_forward_token(self):
+        headers = Message(); headers['Location'] = 'https://blob.example/file'
+        class Opener:
+            def open(self, request, timeout):
+                self_request.append(request)
+                raise urllib.error.HTTPError(request.full_url, 302, 'redirect', headers, None)
+        self_request = []
+        def capture(args):
+            if args[1] == 'auth': return 'secret-token'
+            return json.dumps([{'artifacts':[{'id': 4, 'name':'engine', 'expired':False}]}])
+        with patch.object(artifact.urllib.request, 'build_opener', return_value=Opener()):
+            self.assertEqual(artifact._artifact_url('fixture/repo', '17', 'engine', capture), 'https://blob.example/file')
+        self.assertEqual(self_request[0].host, 'api.github.com')
+        self.assertEqual(self_request[0].get_header('Authorization'), 'Bearer secret-token')
+        self.download(); self.assertTrue(all(x is None for x in self.auth))
 
 
 if __name__=='__main__':unittest.main()

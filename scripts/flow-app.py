@@ -503,6 +503,18 @@ def ensure_outside_target(path):
         raise ValueError('Refusing to store the engine inside the repository target directory. '
                          'The download is the built executable; choose a path outside target/.')
 
+_original_run, _original_capture = run, capture
+
+
+def download_engine_artifact(repo, run_id, dest):
+    command = ['gh', 'run', 'download', run_id, '--repo', repo,
+               '--name', ENGINE_ARTIFACT, '--dir', dest]
+    if run is not _original_run or capture is not _original_capture:
+        return run(command)
+    return native_delivery_artifact.download_artifact(
+        repo, run_id, ENGINE_ARTIFACT, dest, fallback_run=run, capture_gh=capture)
+
+
 def engine_cache_dir(run_id):
     base = Path.home() / 'Library/Caches/Lagrangian/engines' if sys.platform == 'darwin' else Path.home() / '.cache/lagrangian/engines'
     return base / str(run_id)
@@ -565,7 +577,7 @@ def install_engine_payload(repo, run_id, dest, record=None):
         with tempfile.TemporaryDirectory(prefix='flow-engine-download-') as tmp:
             download = Path(tmp) / 'artifact'
             download.mkdir()
-            run(['gh', 'run', 'download', run_id, '--repo', repo, '--name', ENGINE_ARTIFACT, '--dir', download])
+            download_engine_artifact(repo, run_id, download)
             native_delivery_artifact.unpack(download, incoming, repository=repo, run_id=run_id,
                 head=record['headSha'] if record else None)
             # Raw archive/inventory authentication precedes engine-only normalization/probes.
