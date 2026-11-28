@@ -771,3 +771,27 @@ The parallel artifact download review owner correction registers the following 1
 `tests/flow-app/test_app.py`.
 The other 9 changed paths are delivery-owned and are checked against exact HEAD blobs.
 Hashes are Git-derived.
+
+The updater signal cleanup review owner correction registers the following 3 paths from
+`868b3ac0a3a0b0a93c7e5eef7a9da726056064d9` →
+`737702dea0ff3c52a453c398f6cf1df3e810e250`:
+`scripts/mac/README.md`,
+`scripts/mac/auto-update-engine.sh`,
+`scripts/mac/test-auto-update-engine.sh`.
+Hashes are Git-derived.
+
+The updater signal forwarding owner correction registers the following 3 paths from
+`2a2d80575b9f41f2acdbadd7144ef903b399de0f` →
+`4b961c55223703ca576fe687dd596520c4c7f056`:
+`scripts/mac/README.md`,
+`scripts/mac/auto-update-engine.sh`,
+`scripts/mac/test-auto-update-engine.sh`.
+Hashes are Git-derived.
+
+The updater launch-window signal owner correction registers the following 3 paths from
+`80612458469417d8ad0519170cf188dd497d8709` →
+`55b5852aa9faf353adbe2f569fed33e8ed234c77`:
+`scripts/mac/README.md`,
+`scripts/mac/auto-update-engine.sh`,
+`scripts/mac/test-auto-update-engine.sh`.
+Hashes are Git-derived.

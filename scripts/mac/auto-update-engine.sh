@@ -396,16 +396,35 @@ check_superseded() {
   local newer
   if newer=$(newer_success_run "$1"); then supersede_run "$newer"; fi
 }
+# Each shell layer forwards TERM even for INT/HUP: non-interactive background
+# shells inherit ignored INT. Ignore further signals while waiting for cleanup.
+forward_install_signal() {
+  local child="$1" code="$2"
+  if (( signal_cleanup_started != 0 )); then return; fi
+  signal_cleanup_started=1
+  trap '' TERM INT HUP
+  if [[ -n "$child" ]]; then
+    kill -TERM "$child" 2>/dev/null || true
+    # The original wait returned early to run this trap. Wait again to reap.
+    wait "$child" || true
+  fi
+  trap - TERM INT HUP
+  exit "$code"
+}
 # The supervisor is the step's direct parent and owns the entire cancellation.
 run_interruptible_step() {
   local current="$1" output="$2" rc=0 marker="$WT/superseded-run" shell_function=0
+  local sup='' signal_cleanup_started=0
   shift 2
   rm -f "$marker"
   if declare -F "$1" >/dev/null; then shell_function=1; export -f "$1"; export APP; fi
   if declare -F gh >/dev/null; then export -f gh; fi
   export -f newer_success_run
   export REPO
-  python3 - "$current" "$output" "$marker" "$shell_function" "$@" <<'PYCODE' || rc=$?
+  trap 'forward_install_signal "${sup:-$!}" 143' TERM
+  trap 'forward_install_signal "${sup:-$!}" 130' INT
+  trap 'forward_install_signal "${sup:-$!}" 129' HUP
+  python3 - "$current" "$output" "$marker" "$shell_function" "$@" <<'PYCODE' &
 import os, signal, subprocess, sys, tempfile, time
 from pathlib import Path
 
@@ -413,8 +432,10 @@ current, output, marker, shell_function = sys.argv[1:5]
 command = sys.argv[5:]
 if shell_function == '1': command = ['bash', '-c', '"$@"', 'updater-step', *command]
 interval = float(os.environ.get('LAGRANGIAN_SUPERSEDE_POLL_SECONDS', '30'))
-with open(output, 'w') as out:
-    proc = subprocess.Popen(command, start_new_session=True, stdout=out)
+proc = query = None
+known = set()
+spawning = False
+first_signal = None
 
 def result():
     code = proc.returncode
@@ -429,21 +450,27 @@ def stop_query(query):
     query.wait(timeout=2)
 
 def query_newer():
+    global query, spawning
     with tempfile.TemporaryFile(mode='w+') as out:
+        spawning = True
         query = subprocess.Popen(['bash', '-c', 'newer_success_run "$1"', '_', current],
                                  stdout=out, stderr=subprocess.DEVNULL, start_new_session=True)
+        spawning = False
+        if first_signal is not None: shutdown(first_signal, None, deferred=True)
         deadline = time.monotonic() + 15
         while query.poll() is None:
             if proc.poll() is not None or time.monotonic() >= deadline:
                 stop_query(query)
+                query = None
                 return None
             time.sleep(0.1)
-        if query.returncode != 0: return None
+        code = query.returncode
+        query = None
+        if code != 0: return None
         out.seek(0)
         value = out.read().strip()
         return value or None
 
-known = {proc.pid}
 def discover():
     try:
         lines = subprocess.check_output(['ps', '-A', '-o', 'pid=,ppid=,pgid='], text=True, timeout=2).splitlines()
@@ -474,6 +501,53 @@ def gone():
     except ProcessLookupError: return True
     return False
 
+def terminate_step():
+    send(signal.SIGTERM)
+    deadline = time.monotonic() + 1
+    while time.monotonic() < deadline:
+        discover()
+        send(signal.SIGTERM)
+        time.sleep(0.05)
+    discover()
+    send(signal.SIGKILL)
+    proc.wait(timeout=2)
+
+def shutdown(signum, frame, deferred=False):
+    global first_signal
+    if first_signal is not None and not deferred: return
+    first_signal = signum
+    # Popen can be interrupted before assigning its returned child. Finish
+    # publishing that child before cleanup, without letting a second signal
+    # replace the first or reenter cleanup. No main-loop lock is held here.
+    if spawning: return
+    if query is not None:
+        try: stop_query(query)
+        except (OSError, subprocess.SubprocessError) as exc:
+            print('signal query cleanup failed:', exc, file=sys.stderr)
+    try:
+        if proc is not None:
+            discover()
+            terminate_step()
+    except (OSError, subprocess.SubprocessError) as exc:
+        print('signal cleanup failed:', exc, file=sys.stderr)
+    finally:
+        if proc is not None:
+            try:
+                send(signal.SIGKILL)
+                proc.wait(timeout=2)
+            except (OSError, subprocess.SubprocessError) as exc:
+                print('signal cleanup retry failed:', exc, file=sys.stderr)
+    sys.exit(128 + first_signal)
+
+for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+    signal.signal(sig, shutdown)
+with open(output, 'w') as out:
+    spawning = True
+    proc = subprocess.Popen(command, start_new_session=True, stdout=out)
+    known.add(proc.pid)
+    spawning = False
+    if first_signal is not None: shutdown(first_signal, None, deferred=True)
+
 while True:
     deadline = time.monotonic() + max(0, interval)
     while time.monotonic() < deadline:
@@ -489,15 +563,7 @@ while True:
         completed = proc.poll()
         if completed is None:
             Path(marker).write_text(newer + '\n')
-        send(signal.SIGTERM)
-        deadline = time.monotonic() + 1
-        while time.monotonic() < deadline:
-            discover()
-            send(signal.SIGTERM)
-            time.sleep(0.05)
-        discover()
-        send(signal.SIGKILL)
-        proc.wait(timeout=2)
+        terminate_step()
         deadline = time.monotonic() + 2
         while not gone():
             if time.monotonic() >= deadline: raise TimeoutError('step processes did not exit')
@@ -517,13 +583,16 @@ while True:
         sys.exit(result() if completed not in (None, 0) else 1)
     sys.exit(77 if completed is None else result())
 PYCODE
+  sup=$!
+  wait "$sup" || rc=$?
+  trap - TERM INT HUP
   if [[ "$rc" == 77 && -s "$marker" ]]; then
     supersede_run "$(cat "$marker")"
   fi
   return "$rc"
 }
 
-install_run() (
+install_run_body() {
 # The parent clears errexit only while it captures this status. Turn it back
 # on so a failed command still runs the ERR trap instead of continuing.
 set -Eeuo pipefail
@@ -605,7 +674,21 @@ echo "$(date) installed run $id"
 stage done done
 notify "빌드 $id 설치 완료"
 
-)
+}
+
+install_run() {
+  local inst='' rc=0 signal_cleanup_started=0
+  trap 'forward_install_signal "${inst:-$!}" 143' TERM
+  trap 'forward_install_signal "${inst:-$!}" 130' INT
+  trap 'forward_install_signal "${inst:-$!}" 129' HUP
+  # A background function already runs in one subshell. An extra subshell
+  # wrapper would receive TERM instead of the body that waits for the step.
+  install_run_body "$@" &
+  inst=$!
+  wait "$inst" || rc=$?
+  trap - TERM INT HUP
+  return "$rc"
+}
 
 # One iteration returns immediately after a successful watch so selection is
 # refreshed before installation. Errors and idle iterations use the normal delay.

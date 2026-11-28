@@ -2886,6 +2886,69 @@
             "sha256": "f6254c83b74a3ef6c7685b3ebec1f5aac190b39cbd2a4caa45547017d1dc2989"
           }
         ]
+      },
+      {
+        "revision": "737702dea0ff3c52a453c398f6cf1df3e810e250",
+        "baseRevision": "868b3ac0a3a0b0a93c7e5eef7a9da726056064d9",
+        "files": [
+          {
+            "path": "scripts/mac/README.md",
+            "baseSHA256": "6a771cedb953ec1609eb085d79d48f7fbb8a80a6a11aacdb3ee1dc50341b0239",
+            "sha256": "22c8cd0cd395ff0a9ff1eb5d98e2a0a35034d1559d9488195809880f04ef6531"
+          },
+          {
+            "path": "scripts/mac/auto-update-engine.sh",
+            "baseSHA256": "c5bb4f77032c1c3f5c1112b82c6be41f8794c31aececc593b0ae9267cf07c910",
+            "sha256": "23280d6afa6bec6855ac6c0070c1b087d53a06ec4850966056c3b7ec518ecc18"
+          },
+          {
+            "path": "scripts/mac/test-auto-update-engine.sh",
+            "baseSHA256": "f226801fce8a394079b0b85420e253a508151754ec464973bb87f7f6226ae686",
+            "sha256": "9cad1a9fa9687e3b8faad2e41cc8e56687fbb4e5a69fb6051e43767579c221f4"
+          }
+        ]
+      },
+      {
+        "revision": "4b961c55223703ca576fe687dd596520c4c7f056",
+        "baseRevision": "2a2d80575b9f41f2acdbadd7144ef903b399de0f",
+        "files": [
+          {
+            "path": "scripts/mac/README.md",
+            "baseSHA256": "22c8cd0cd395ff0a9ff1eb5d98e2a0a35034d1559d9488195809880f04ef6531",
+            "sha256": "a9c6ce997d6152eb443b7eba016bfeb4f9e324c55ce9ccddf8dbe87584b876a3"
+          },
+          {
+            "path": "scripts/mac/auto-update-engine.sh",
+            "baseSHA256": "23280d6afa6bec6855ac6c0070c1b087d53a06ec4850966056c3b7ec518ecc18",
+            "sha256": "6e033752e6c950983b066d5bf84bd1640b1470e9cdf84c833f1cabaadde7af89"
+          },
+          {
+            "path": "scripts/mac/test-auto-update-engine.sh",
+            "baseSHA256": "9cad1a9fa9687e3b8faad2e41cc8e56687fbb4e5a69fb6051e43767579c221f4",
+            "sha256": "5712c325dad37b09dd6e183dbf7ef6292cb798932a321e05f1663799aaccda5b"
+          }
+        ]
+      },
+      {
+        "revision": "55b5852aa9faf353adbe2f569fed33e8ed234c77",
+        "baseRevision": "80612458469417d8ad0519170cf188dd497d8709",
+        "files": [
+          {
+            "path": "scripts/mac/README.md",
+            "baseSHA256": "a9c6ce997d6152eb443b7eba016bfeb4f9e324c55ce9ccddf8dbe87584b876a3",
+            "sha256": "9202ab5f0484832b1914e1383a4ae7d8ff6daf991319ccba1f8af77d76948b9b"
+          },
+          {
+            "path": "scripts/mac/auto-update-engine.sh",
+            "baseSHA256": "6e033752e6c950983b066d5bf84bd1640b1470e9cdf84c833f1cabaadde7af89",
+            "sha256": "e7a899bfb0c55f2f2305b4801fbcc08a438041c0b7351a2c947e4e061265b546"
+          },
+          {
+            "path": "scripts/mac/test-auto-update-engine.sh",
+            "baseSHA256": "5712c325dad37b09dd6e183dbf7ef6292cb798932a321e05f1663799aaccda5b",
+            "sha256": "daa126af3ee1b1b54f941def8bfe63b005c57c5663ce86f5e9236363db03e7d6"
+          }
+        ]
       }
     ]
   }
