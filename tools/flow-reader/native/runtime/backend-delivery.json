@@ -2928,6 +2928,27 @@
             "sha256": "5712c325dad37b09dd6e183dbf7ef6292cb798932a321e05f1663799aaccda5b"
           }
         ]
+      },
+      {
+        "revision": "55b5852aa9faf353adbe2f569fed33e8ed234c77",
+        "baseRevision": "80612458469417d8ad0519170cf188dd497d8709",
+        "files": [
+          {
+            "path": "scripts/mac/README.md",
+            "baseSHA256": "a9c6ce997d6152eb443b7eba016bfeb4f9e324c55ce9ccddf8dbe87584b876a3",
+            "sha256": "9202ab5f0484832b1914e1383a4ae7d8ff6daf991319ccba1f8af77d76948b9b"
+          },
+          {
+            "path": "scripts/mac/auto-update-engine.sh",
+            "baseSHA256": "6e033752e6c950983b066d5bf84bd1640b1470e9cdf84c833f1cabaadde7af89",
+            "sha256": "e7a899bfb0c55f2f2305b4801fbcc08a438041c0b7351a2c947e4e061265b546"
+          },
+          {
+            "path": "scripts/mac/test-auto-update-engine.sh",
+            "baseSHA256": "5712c325dad37b09dd6e183dbf7ef6292cb798932a321e05f1663799aaccda5b",
+            "sha256": "daa126af3ee1b1b54f941def8bfe63b005c57c5663ce86f5e9236363db03e7d6"
+          }
+        ]
       }
     ]
   }

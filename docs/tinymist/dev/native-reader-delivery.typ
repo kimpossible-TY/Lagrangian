@@ -787,3 +787,11 @@ The updater signal forwarding owner correction registers the following 3 paths f
 `scripts/mac/auto-update-engine.sh`,
 `scripts/mac/test-auto-update-engine.sh`.
 Hashes are Git-derived.
+
+The updater launch-window signal owner correction registers the following 3 paths from
+`80612458469417d8ad0519170cf188dd497d8709` →
+`55b5852aa9faf353adbe2f569fed33e8ed234c77`:
+`scripts/mac/README.md`,
+`scripts/mac/auto-update-engine.sh`,
+`scripts/mac/test-auto-update-engine.sh`.
+Hashes are Git-derived.
