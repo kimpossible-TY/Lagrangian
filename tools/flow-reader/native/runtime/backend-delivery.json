@@ -2645,6 +2645,42 @@
             "sha256": "7ba5d6fba7c0db12d33f6094603dafd5c3923dcccbdaaf2135aef40eb03bf697"
           }
         ]
+      },
+      {
+        "revision": "cb09ce681730421862a45e4ad842cd33418aec02",
+        "baseRevision": "b3f5ecba8a539a0b542498ed24912a6376563461",
+        "files": [
+          {
+            "path": "docs/tinymist/dev/reader-architecture.typ",
+            "baseSHA256": "ee61092ed50b6bc9e4995d8c3fa5158a43ec5224eb4ac93318098307daa5c550",
+            "sha256": "f35a255d60c18028fe66d1a7bbce8c4f3bc139a613ead2d4b2c404ff54953056"
+          },
+          {
+            "path": "openspec/changes/unify-lagrangian-web-viewer/design.md",
+            "baseSHA256": "d99da2b9f637dc273b764bffeebf4c8d5d39835edf84eec429304805a7b4584a",
+            "sha256": "33098f85ba518d51b7eac800ef087ce9df79afb252e66d37d24d8a46c26688f9"
+          },
+          {
+            "path": "tests/fixtures/cross-project-resolution.json",
+            "baseSHA256": "2f423426dc7d8cb960a5041f46d2221b5aae17055552b505545a46e1f5bbb950",
+            "sha256": "f640cbba098205c69e932bb8e776739c1cd1c1a41dba25a9f67ee0b69e82c945"
+          },
+          {
+            "path": "tools/flow-reader/flow_reader/server/routing.py",
+            "baseSHA256": "32781fc9dac76fa9238f2294f8b70fa63a1c625d0a1be341cebda899346c5d6d",
+            "sha256": "cebde15a7ca667b211cd5b04882004a5addad59e61d200be1b7802f55794846b"
+          },
+          {
+            "path": "tools/flow-reader/flow_reader/services/cross_project_refs.py",
+            "baseSHA256": "059d731698411b5ef6d83ef0fe74eee3c4b99d73a15f7f5bfa98744a0e51acc8",
+            "sha256": "abbf4ce308166be0357cfdce2a3eadc1cd2a634ed3796897e14ddb507668222d"
+          },
+          {
+            "path": "tools/flow-reader/tests/test_cross_project_refs.py",
+            "baseSHA256": "7ba5d6fba7c0db12d33f6094603dafd5c3923dcccbdaaf2135aef40eb03bf697",
+            "sha256": "2b263f4641b3a5b782cb81601e698a3a1c19635b6e91653eaa698e4bc5b95fd5"
+          }
+        ]
       }
     ]
   }

@@ -684,3 +684,14 @@ The cross-project unification owner correction registers the following 17 paths 
 `tools/flow-reader/flow_reader/services/cross_project_refs.py`,
 `tools/flow-reader/tests/test_cross_project_refs.py`.
 Hashes are Git-derived; the new shared fixture has a null base digest.
+
+The PR #35 canonical equivalence owner correction registers the following 6 paths from
+`b3f5ecba8a539a0b542498ed24912a6376563461` →
+`cb09ce681730421862a45e4ad842cd33418aec02`:
+`docs/tinymist/dev/reader-architecture.typ`,
+`openspec/changes/unify-lagrangian-web-viewer/design.md`,
+`tests/fixtures/cross-project-resolution.json`,
+`tools/flow-reader/flow_reader/server/routing.py`,
+`tools/flow-reader/flow_reader/services/cross_project_refs.py`,
+`tools/flow-reader/tests/test_cross_project_refs.py`.
+Hashes are Git-derived.
