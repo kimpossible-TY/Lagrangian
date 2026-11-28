@@ -210,7 +210,7 @@ from pathlib import Path
 root=Path(os.environ['FIXTURE']); command=sys.argv[1]
 if command=='fetch-engine':
     if (root/'fail').exists(): sys.exit(int((root/'fail').read_text()))
-    child=subprocess.Popen([sys.executable,'-c','import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'])
+    child=subprocess.Popen([sys.executable,'-c','import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'], start_new_session=True)
     def on_term(*args):
         late=subprocess.Popen([sys.executable,'-c','import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'])
         (root/'late-pid').write_text(str(late.pid))
@@ -227,6 +227,7 @@ PYCODE
       'run list')
         case " $* " in
           *' -s success '*)
+            if [[ -e "$FIXTURE/gh-hang" ]]; then /bin/sleep 30; fi
             if [[ -e "$FIXTURE/gh-error" ]]; then
               rm -f "$FIXTURE/gh-error"; printf 'error\n' >> "$FIXTURE/polls"; return 1
             fi
@@ -249,6 +250,21 @@ PYCODE
   run_interruptible_step 20 "$FIXTURE/step-output" /bin/sleep 0.4
   grep -q '^error$' "$FIXTURE/polls"
   [[ ! -e "$FIXTURE/superseded-run" ]]
+  # A stuck lookup must be cancelled when the step completes.
+  touch "$FIXTURE/gh-hang"
+  start=$SECONDS
+  run_interruptible_step 20 "$FIXTURE/step-output" /bin/sleep 0.4
+  (( SECONDS - start < 5 ))
+  rm "$FIXTURE/gh-hang"
+  # The marker can precede signalling; an independent failure still wins.
+  saved_terminate=$(declare -f terminate_step_tree)
+  terminate_step_tree() { /bin/sleep 0.5; }
+  printf '21\n' > "$FIXTURE/success"
+  rc=0
+  run_interruptible_step 20 "$FIXTURE/step-output" /bin/sh -c 'sleep 0.3; exit 9' || rc=$?
+  [[ "$rc" == 9 ]]
+  eval "$saved_terminate"
+  printf '20\n' > "$FIXTURE/success"
   : > "$FIXTURE/polls"
   # Polling must survive an API error before detecting the newer run.
   touch "$FIXTURE/gh-error"

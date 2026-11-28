@@ -396,6 +396,37 @@ check_superseded() {
   local newer
   if newer=$(newer_success_run "$1"); then supersede_run "$newer"; fi
 }
+# Capture descendants by parent PID as well as process group: a child may start
+# a separate session. Keep discovered PIDs after their parent exits.
+terminate_step_tree() {
+  python3 - "$1" "${2:-tree}" <<'PYCODE'
+import os, signal, subprocess, sys, time
+root = int(sys.argv[1])
+known = {root}
+def discover():
+    lines = subprocess.check_output(['ps', '-A', '-o', 'pid=', '-o', 'ppid='], text=True).splitlines()
+    pairs = [tuple(map(int, line.split())) for line in lines if len(line.split()) == 2]
+    changed = True
+    while changed:
+        added = {pid for pid, ppid in pairs if ppid in known} - known
+        changed = bool(added)
+        known.update(added)
+def send(sig):
+    for pid in sorted(known, reverse=True):
+        try: os.kill(pid, sig)
+        except (ProcessLookupError, PermissionError): pass
+    if sys.argv[2] == "session":
+        try: os.killpg(root, sig)
+        except (ProcessLookupError, PermissionError): pass
+discover()
+send(signal.SIGTERM)
+end = time.monotonic() + 1
+while time.monotonic() < end:
+    discover()
+    time.sleep(0.05)
+send(signal.SIGKILL)
+PYCODE
+}
 # The monitor owns only the child tree. The parent waits for both processes
 # before inspecting its result, so no monitor can outlive this step.
 run_interruptible_step() {
@@ -413,26 +444,23 @@ run_interruptible_step() {
   child=$!
   (
     trap - ERR EXIT
-    timer=
-    trap '[[ -z "$timer" ]] || kill "$timer" 2>/dev/null; exit 0' TERM
+    timer= query=
+    trap '[[ -z "$timer" ]] || kill "$timer" 2>/dev/null; if [[ -n "$query" ]]; then terminate_step_tree "$query"; wait "$query" 2>/dev/null || true; fi; exit 0' TERM
     while kill -0 "$child" 2>/dev/null; do
       sleep "${LAGRANGIAN_SUPERSEDE_POLL_SECONDS:-30}" &
       timer=$!
       wait "$timer" || exit 0
       timer=
       kill -0 "$child" 2>/dev/null || break
-      if newer=$(newer_success_run "$current"); then
-        printf '%s\n' "$newer" > "$marker"
-        # Signal the group again after a grace period: a TERM handler can spawn
-        # another child or outlive its parent during that period.
-        python3 - "$child" <<'PYCODE'
-import os,signal,sys,time
-root=int(sys.argv[1])
-for sig in (signal.SIGTERM,signal.SIGKILL):
-    try: os.killpg(root,sig)
-    except ProcessLookupError: pass
-    if sig==signal.SIGTERM: time.sleep(1)
-PYCODE
+      # wait on an asynchronous lookup so TERM can interrupt a stuck gh call.
+      newer_success_run "$current" > "$marker.query" &
+      query=$!
+      query_rc=0
+      wait "$query" || query_rc=$?
+      query=
+      if [[ "$query_rc" == 0 ]]; then
+        mv "$marker.query" "$marker"
+        terminate_step_tree "$child" session
         break
       fi
     done
@@ -446,7 +474,11 @@ PYCODE
     kill "$monitor" 2>/dev/null || true
     wait "$monitor" 2>/dev/null || true
   fi
-  if [[ -s "$marker" ]]; then supersede_run "$(cat "$marker")"; fi
+  # A command that independently failed must not be hidden by a concurrent
+  # supersede decision. Signal exits and successful TERM handlers are expected.
+  if [[ -s "$marker" ]] && [[ "$rc" == 0 || "$rc" == 143 || "$rc" == 137 ]]; then
+    supersede_run "$(cat "$marker")"
+  fi
   return "$rc"
 }
 install_run() (
