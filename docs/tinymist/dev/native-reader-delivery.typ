@@ -709,3 +709,32 @@ The PR #35 canonical equivalence owner correction registers the following 6 path
 `tools/flow-reader/flow_reader/services/cross_project_refs.py`,
 `tools/flow-reader/tests/test_cross_project_refs.py`.
 Hashes are Git-derived.
+
+Because 4ec2e9b8 and 876f7d5d both use base 0ae3e681, they cannot follow
+each other in the ownerCorrections chain (each baseRevision must be a
+descendant of the previous correction revision). After merging main, the
+paths first registered at 876f7d5d and cb09ce68 are re-registered from
+main's delivery tip as follows.
+
+The PR #35 merge-with-main owner correction registers the following 17 paths from
+`808ee7b00361c333de63799a2a12b9d6b9a9203d` →
+`fe335749e8185fc9c936a33b8871b5ca61cf0744`:
+`docs/tinymist/dev/reader-architecture.typ`,
+`openspec/changes/add-cross-project-references/design.md`,
+`openspec/changes/add-cross-project-references/proposal.md`,
+`openspec/changes/add-cross-project-references/tasks.md`,
+`openspec/changes/unify-lagrangian-web-viewer/design.md`,
+`openspec/changes/unify-lagrangian-web-viewer/proposal.md`,
+`openspec/changes/unify-lagrangian-web-viewer/specs/reader-architecture/spec.md`,
+`openspec/changes/unify-lagrangian-web-viewer/specs/web-viewer/spec.md`,
+`openspec/changes/unify-lagrangian-web-viewer/tasks.md`,
+`tests/fixtures/cross-project-resolution.json`,
+`tests/flow-app/ProjectServiceTests.swift`,
+`tests/flow-app/test_project_service.py`,
+`tools/flow-reader/flow_reader/server/native_reader.py`,
+`tools/flow-reader/flow_reader/server/routing.py`,
+`tools/flow-reader/flow_reader/server/state.py`,
+`tools/flow-reader/flow_reader/services/cross_project_refs.py`,
+`tools/flow-reader/tests/test_cross_project_refs.py`.
+Hashes are Git-derived. state.py is the merge of PreviewImportCache with the
+source-map recovery changes; the shared fixture has a null base digest.
