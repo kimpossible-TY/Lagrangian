@@ -51,7 +51,7 @@ enum NativeChrome {
     let overflowButton = NativeCapsuleButton()
     private let divider = NSView()
     private(set) var buttons = [Action: NativeCapsuleButton]()
-    var compact = false { didSet { updateOverflow(); needsLayout = true } }
+    var compact = false { didSet { guard compact != oldValue else { return }; updateOverflow(); needsLayout = true } }
     override var isOpaque: Bool { false }
     override init(frame: NSRect) {
         super.init(frame: frame)

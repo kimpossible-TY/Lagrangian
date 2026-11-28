@@ -39,6 +39,8 @@ class NativeDesignParityTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('assertions; offscreen AppKit only', result.stdout)
 
+    def test_refresh_respects_text_input(self): self.scenario('refresh-input')
+    def test_mode_has_one_request_owner(self): self.scenario('mode-owner')
     def test_outline_drawer_and_active_section(self): self.scenario('drawer')
     def test_centered_pass_through_notifications(self): self.scenario('notifications')
     def test_brand_mode_morph_and_toolbar(self): self.scenario('toolbar')
@@ -49,3 +51,4 @@ class NativeDesignParityTests(unittest.TestCase):
     def test_tall_selection_avoidance(self): self.scenario('tall-selection')
     def test_pending_refresh_local_strike(self): self.scenario('pending-strike')
     def test_keyboard_pdf_selection_and_immutable_ink(self): self.scenario('keyboard-pdf')
+    def test_mixed_link_hover_and_document_replacement(self): self.scenario('mixed-link-hover')

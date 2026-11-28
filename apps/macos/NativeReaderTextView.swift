@@ -291,11 +291,15 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
     override func resetCursorRects() {
         super.resetCursorRects()
         guard let storage = textStorage, let manager = layoutManager, let container = textContainer else { return }
-        storage.enumerateAttribute(nativeReaderLink, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
+        let visible = visibleRect.offsetBy(dx: -textContainerOrigin.x, dy: -textContainerOrigin.y)
+        let glyphs = manager.glyphRange(forBoundingRect: visible, in: container)
+        let characters = manager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil)
+        storage.enumerateAttribute(nativeReaderLink, in: characters) { value, range, _ in
             guard value != nil else { return }
             manager.enumerateEnclosingRects(forGlyphRange: manager.glyphRange(forCharacterRange: range, actualCharacterRange: nil),
                 withinSelectedGlyphRange: NSRange(location: NSNotFound, length: 0), in: container) { rect, _ in
-                self.addCursorRect(rect.offsetBy(dx: self.textContainerOrigin.x, dy: self.textContainerOrigin.y), cursor: .pointingHand)
+                let clipped = rect.offsetBy(dx: self.textContainerOrigin.x, dy: self.textContainerOrigin.y).intersection(self.visibleRect)
+                if !clipped.isEmpty { self.addCursorRect(clipped, cursor: .pointingHand) }
             }
         }
     }
@@ -762,28 +766,35 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
         bodyTextView.backgroundColor = p.paper; bodyTextView.insertionPointColor = p.accent
         bodyTextView.selectedTextAttributes = [.backgroundColor: p.selection, .foregroundColor: p.ink]
     }
+    private var hoveredLinkID: String?
+    private var hoveredLinkRange: NSRange?
     fileprivate func hoverLink(at point: NSPoint?) {
         guard let key = renderKey, key == requestedRenderKey, let storage = bodyTextView.textStorage,
               let manager = bodyTextView.layoutManager, let container = bodyTextView.textContainer else { return }
         var hovered: String?
+        var hoveredRange: NSRange?
         if let point {
             let local = NSPoint(x: point.x - bodyTextView.textContainerOrigin.x, y: point.y - bodyTextView.textContainerOrigin.y)
             let index = manager.characterIndex(for: local, in: container, fractionOfDistanceBetweenInsertionPoints: nil)
+            var range = NSRange()
             if index < storage.length,
-               let id = storage.attribute(nativeReaderLink, at: index, effectiveRange: nil) as? String {
+               let id = storage.attribute(nativeReaderLink, at: index, longestEffectiveRange: &range,
+                                          in: NSRange(location: 0, length: storage.length)) as? String {
                 let glyph = manager.glyphRange(forCharacterRange: NSRange(location: index, length: 1), actualCharacterRange: nil)
-                if manager.boundingRect(forGlyphRange: glyph, in: container).contains(local) { hovered = id }
+                if manager.boundingRect(forGlyphRange: glyph, in: container).contains(local) { hovered = id; hoveredRange = range }
             }
         }
-        let p = designPalette
-        var runs: [(NSRange, Bool)] = []
-        storage.enumerateAttribute(nativeReaderLink, in: NSRange(location: 0, length: storage.length)) { value, range, _ in
-            if let id = value as? String { runs.append((range, id == hovered)) }
+        guard hovered != hoveredLinkID else { return }
+        if let old = hoveredLinkRange {
+            manager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: old)
+            manager.removeTemporaryAttribute(.underlineColor, forCharacterRange: old)
         }
-        for (range, active) in runs {
-            let underline = active ? p.accentHover : p.accent
-            storage.addAttributes([.foregroundColor: active ? p.accentHover : p.accent,
-                .underlineColor: underline.withAlphaComponent(designPreferences.increasedContrast ? 1 : (active ? 0.88 : 0.42))], range: range)
+        hoveredLinkID = hovered; hoveredLinkRange = hoveredRange
+        if let range = hoveredRange {
+            let p = designPalette
+            manager.addTemporaryAttributes([.foregroundColor: p.accentHover,
+                .underlineColor: p.accentHover.withAlphaComponent(designPreferences.increasedContrast ? 1 : 0.88)],
+                forCharacterRange: range)
         }
         if bodyTextView.window?.isKeyWindow == true {
             if hovered != nil { NSCursor.pointingHand.set() } else { NSCursor.iBeam.set() }
@@ -936,6 +947,11 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
         objectRanges = composition.objectRanges
         attachmentNodes = NativeReaderPreparedTextObject.attachmentNodes(in: document)
         textMap = .init(document: document, spans: composition.spans, length: composition.text.length)
+        if let range = hoveredLinkRange {
+            bodyTextView.layoutManager?.removeTemporaryAttribute(.foregroundColor, forCharacterRange: range)
+            bodyTextView.layoutManager?.removeTemporaryAttribute(.underlineColor, forCharacterRange: range)
+        }
+        hoveredLinkID = nil; hoveredLinkRange = nil
         bodyTextView.textStorage?.setAttributedString(composition.text)
         bodyTextView.appearance = NSAppearance(named: textAppearance.theme == .dark ? .darkAqua : .aqua)
         applyPaperAppearance()

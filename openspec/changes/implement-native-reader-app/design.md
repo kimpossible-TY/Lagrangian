@@ -855,8 +855,7 @@ coverage, not interactive GUI or delivery acceptance.
 NativeReaderHostWindow composes the NRD01A NativeOutlineDrawerView,
 NativeBrandMarkControl, NativeModeMorphSwitch and NativeFloatingGlassView.
 FlowApp injects Home for live and offline readers; no service lifecycle moves
-into chrome. Existing mode selectors remain the request entrypoints and the
-switch thumb follows only accepted displayMode, including selection holds.
+into chrome. The host mode selectors are the sole request entrypoints for segment actions, gestures and Cmd+1/Cmd+2; the switch owns only presentation and gesture interpretation. This preserves the host/session selection-hold policy while the thumb follows accepted displayMode.
 Mode transitions cancel retained Reflow layout work; hidden body layout callbacks
 cannot revoke an in-flight or accepted PDF publication.
 
@@ -884,8 +883,7 @@ selection geometry to scroll ink clear. No selection path changes window.frame,
 and no top dock or dock-height state remains.
 
 Keyboard routing stays in the host via the toolbar's native key-equivalent path.
-Shift+Return uses a reader-window-scoped local keyDown monitor before text inputs
-consume the event; other windows retain their normal input routing.
+Shift+Return uses a reader-window-scoped local keyDown monitor. Field editors, editable text views and responders with marked text retain the event for input and IME composition; the read-only body still refreshes. The toolbar key-equivalent path applies the same rule.
 Cmd+\ toggles the outline; Cmd+Shift+O opens and focuses it without closing an open drawer. Cmd+0 belongs to FlowApp Home; Opt+Cmd+0 resets zoom. Escape closes Find, outline,
 Aa/logo, tools without releasing selection, then PDF selection. Explicit tool
 reopen and action dispatch retain request-context and selection-ticket guards.
@@ -897,8 +895,7 @@ No math placeholder/batch implementation or PDF printed ink is changed.
 
 NRD01B verification is headless CLI and offscreen AppKit only. The self-contained
 NativeDesignParityTests harness generates temporary semantic/PDF fixtures and
-uses an isolated module cache without an external lock prerequisite. Its nine
-cases cover drawer/focus/scroll, notifications/pass-through, brand/mode/toolbar,
+uses an isolated module cache without an external lock prerequisite. Its cases cover input exclusion, single mode dispatch, drawer/focus/scroll, notifications/pass-through, brand/mode/toolbar,
 bottom tools/review/tickets, existing and first review, horizontally offset document-end selection, pending Strike, and keyboard/PDF selection. This is source-component
 verification; interactive GUI, actual OS13 and live installation are separate.
 

@@ -116,7 +116,102 @@ private final class ReviewFixtureCell: NSTextAttachmentCell {
         try JSONEncoder().encode(doc).write(to: output.appendingPathComponent("long-document.json"))
         try bytes.write(to: output.appendingPathComponent("publication.pdf"))
         try JSONEncoder().encode(publication(context, bytes)).write(to: output.appendingPathComponent("publication.json"))
-        if scenario == "drawer" {
+        if scenario == "mixed-link-hover" {
+            func part(_ id: String, _ kind: NativeReaderNode.Kind, _ text: String, _ start: Int,
+                      children: [NativeReaderNode] = [], link: String? = nil) -> NativeReaderNode {
+                .init(id: id, sectionID: "section", kind: kind, canonicalText: text, displayText: text,
+                    rangeUTF16: [start, start + text.utf16.count], offsets: NativeTextOffsets(text), children: children,
+                    anchors: [], annotationTargets: [], visible: true, mapping: .unmapped, passageKey: nil,
+                    direction: nil, language: nil, headingLevel: nil, math: nil, cell: nil, link: link, assetID: nil, alt: nil)
+            }
+            func fixture(_ generation: Int, replacement: Bool) -> NativeReaderDocument {
+                let plain = replacement ? "other " : "plain "
+                let text = plain + "bold end"
+                let bold = part("bold", .strong, "bold", 6, children: [part("bold-text", .text, "bold", 6)])
+                let link = part("same-link", .link, text, 0,
+                    children: [part("plain", .text, plain, 0), bold, part("end", .text, " end", 10)],
+                    link: "https://example.com")
+                return .init(schemaVersion: 1, identity: doc.identity, generation: generation,
+                    requiredCapabilities: ["semantic-tree-v1"], blocks: [part("paragraph", .paragraph, text, 0, children: [link])],
+                    assets: [], diagnostics: [])
+            }
+            let store = NativeReaderDocumentStore(), reader = NativeReaderTextView(store: store)
+            defer { reader.dispose(); reader.removeFromSuperview() }
+            reader.frame = NSRect(x: 0, y: 0, width: 800, height: 400); root.addSubview(reader)
+            func adoptFixture(replacement: Bool = false) throws {
+                let generation = try store.beginRequest(), value = fixture(generation, replacement: replacement)
+                try value.validate()
+                try reader.adopt(value, context: .init(requestID: UUID(), viewID: store.viewID, generation: generation, target: value.identity))
+            }
+            try adoptFixture()
+            let body = reader.bodyTextView, manager = body.layoutManager!, container = body.textContainer!
+            let linkRange = NSRange(location: 0, length: 14), linkKey = NSAttributedString.Key("NativeReaderLink")
+            func move(_ index: Int) {
+                manager.ensureLayout(for: container)
+                let glyph = manager.glyphRange(forCharacterRange: NSRange(location: index, length: 1), actualCharacterRange: nil)
+                let rect = manager.boundingRect(forGlyphRange: glyph, in: container)
+                let point = body.convert(NSPoint(x: rect.midX + body.textContainerOrigin.x, y: rect.midY + body.textContainerOrigin.y), to: nil)
+                let event = NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: [], timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0)!
+                body.mouseMoved(with: event)
+            }
+            func checkHover(_ active: Bool) throws {
+                for index in linkRange.location..<NSMaxRange(linkRange) {
+                    let foreground = manager.temporaryAttribute(.foregroundColor, atCharacterIndex: index, effectiveRange: nil) as? NSColor
+                    let underline = manager.temporaryAttribute(.underlineColor, atCharacterIndex: index, effectiveRange: nil) as? NSColor
+                    if active {
+                        try check(foreground == reader.designPalette.accentHover, "Hover foreground covers link character \(index)")
+                        try check(underline == reader.designPalette.accentHover.withAlphaComponent(reader.designPreferences.increasedContrast ? 1 : 0.88),
+                                  "Hover underline covers link character \(index)")
+                    } else {
+                        try check(foreground == nil && underline == nil, "Hover attributes cleared at character \(index)")
+                    }
+                }
+            }
+            var fragment = NSRange()
+            try check(body.textStorage!.attribute(linkKey, at: 7, effectiveRange: &fragment) as? String == "same-link" && fragment.length < linkRange.length,
+                      "Bold link fragment has a shorter effective range than the link")
+            move(7); try checkHover(true)
+            move(1); try checkHover(true)
+            let exit = NSEvent.mouseEvent(with: .mouseMoved, location: .zero, modifierFlags: [], timestamp: 0,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0)!
+            body.mouseExited(with: exit); try checkHover(false)
+            move(7); try checkHover(true)
+            try adoptFixture(replacement: true); manager.ensureLayout(for: container)
+            try check(body.string == "other bold end", "Replacement document was installed")
+            try checkHover(false)
+            move(7); try checkHover(true)
+        } else if scenario == "refresh-input" {
+            let key = event(window, "\r", .shift, code: 36)
+            var refreshes = 0
+            chrome.onRefresh = { refreshes += 1 }
+            window.makeFirstResponder(host.textView.bodyTextView)
+            try check(NativeReaderHostWindow.shouldInterceptRefresh(event: key, firstResponder: window.firstResponder), "Read-only body accepts refresh")
+            NSApp.sendEvent(key)
+            try check(refreshes == 1, "Body Shift Return refreshes once")
+            let field = NSTextField(frame: NSRect(x: 20, y: 20, width: 180, height: 28))
+            root.addSubview(field); window.makeFirstResponder(field)
+            guard let editor = window.firstResponder as? NSTextView, editor.isFieldEditor else { throw FlowError(message: "Field editor required") }
+            try check(!NativeReaderHostWindow.shouldInterceptRefresh(event: key, firstResponder: editor), "Field editor retains Shift Return")
+            NSApp.sendEvent(key)
+            try check(refreshes == 1, "Field editor does not refresh")
+            let input = NSTextView(frame: NSRect(x: 20, y: 60, width: 180, height: 50))
+            root.addSubview(input); window.makeFirstResponder(input)
+            input.setMarkedText("composition", selectedRange: NSRange(location: 0, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+            try check(input.hasMarkedText(), "IME fixture has marked text")
+            try check(!NativeReaderHostWindow.shouldInterceptRefresh(event: key, firstResponder: input), "Marked input retains Shift Return")
+            NSApp.sendEvent(key)
+            try check(refreshes == 1, "Marked input does not refresh")
+        } else if scenario == "mode-owner" {
+            var requests: [NativeReaderWindowController.Mode] = []
+            chrome.changeMode = { requests.append($0) }
+            chrome.modeSegmentSurface.pageButton.performClick(nil)
+            try check(requests == [.originalPages], "Segment emits one request")
+            try check(root.performKeyEquivalent(with: event(window, "2", .command)), "Cmd 2 handled")
+            try check(requests == [.originalPages, .originalPages], "Keyboard emits one request through the same host")
+            try check(root.performKeyEquivalent(with: event(window, "1", .command)), "Cmd 1 handled")
+            try check(requests == [.originalPages, .originalPages, .nativeReflow], "Cmd 1 emits one host request")
+        } else if scenario == "drawer" {
             try check(chrome.outlineToggleButton.identifier?.rawValue == "contentsDrawerToggle" && chrome.outlineToggleButton.isEnabled, "Ghost outline toggle wired")
             try check(chrome.outlineToggleButton.designRole == .ghost, "Outline uses shared ghost paint")
             try check(abs(chrome.outlineToggleButton.bounds.height - 30) < 0.5, "Outline ghost has 30pt hit height")

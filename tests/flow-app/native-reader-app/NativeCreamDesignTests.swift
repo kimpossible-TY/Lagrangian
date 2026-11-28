@@ -495,21 +495,19 @@ private final class Actions: NSObject {
             control.compact = compact; control.preferencesOverride = .init(theme: .light, reduceMotion: true)
             window.contentView!.addSubview(control); control.layoutSubtreeIfNeeded()
             defer { control.removeFromSuperview() }
-            var requests = 0
-            control.onRequestMode = { _ in requests += 1 }
             let pdf = NSPoint(x: width * 0.75, y: 16)
             for release in [NSPoint(x: pdf.x, y: 150), NSPoint(x: pdf.x, y: 24), NSPoint(x: width + 10, y: 16)] {
                 control.mouseDown(with: pointer(.leftMouseDown, pdf, in: control))
                 control.mouseDragged(with: pointer(.leftMouseDragged, release, in: control))
                 control.mouseUp(with: pointer(.leftMouseUp, release, in: control))
                 control.layoutSubtreeIfNeeded()
-                try check(requests == 0 && control.requestedMode == nil, "Vertical/outside release cancels mode intent")
+                try check(control.requestedMode == nil, "Vertical/outside release cancels mode intent")
                 try check(control.layer!.sublayers![1].frame.minX == 3, "Canceled thumb returns to accepted mode")
             }
             // A release without an intermediate drag event must cancel too.
             control.mouseDown(with: pointer(.leftMouseDown, pdf, in: control))
             control.mouseUp(with: pointer(.leftMouseUp, NSPoint(x: pdf.x, y: 150), in: control))
-            try check(requests == 0, "Outside mouseUp alone cannot activate a segment")
+            try check(control.requestedMode == nil, "Outside mouseUp alone cannot activate a segment")
             let body = NSPoint(x: 10, y: 16), dragged = NSPoint(x: width - 10, y: 16)
             control.mouseDown(with: pointer(.leftMouseDown, body, in: control))
             control.mouseDragged(with: pointer(.leftMouseDragged, dragged, in: control)); control.layoutSubtreeIfNeeded()
@@ -519,15 +517,15 @@ private final class Actions: NSObject {
             try check(control.layer!.sublayers![1].frame.minX == 3, "Disabling during drag immediately pins accepted thumb")
             control.allowsModeSwitch = true
             control.mouseUp(with: pointer(.leftMouseUp, dragged, in: control))
-            try check(requests == 0, "Reenabling cannot revive the canceled gesture")
+            try check(control.requestedMode == nil, "Reenabling cannot revive the canceled gesture")
             control.mouseDown(with: pointer(.leftMouseDown, pdf, in: control))
             control.mouseUp(with: pointer(.leftMouseUp, pdf, in: control))
-            try check(requests == 1 && control.requestedMode == .originalPages, "Fresh click works after cancellation")
+            try check(control.requestedMode == .originalPages, "Fresh click works after cancellation")
             control.requestedMode = nil
             control.mouseDown(with: pointer(.leftMouseDown, body, in: control))
             control.mouseDragged(with: pointer(.leftMouseDragged, dragged, in: control))
             control.mouseUp(with: pointer(.leftMouseUp, dragged, in: control)); control.layoutSubtreeIfNeeded()
-            try check(requests == 2 && control.layer!.sublayers![1].frame.minX == 3, "Horizontal swipe requests once and awaits acceptance")
+            try check(control.requestedMode == .originalPages && control.layer!.sublayers![1].frame.minX == 3, "Horizontal swipe requests once and awaits acceptance")
         }
         let drawer = NativeOutlineDrawerView(frame: window.contentView!.bounds)
         drawer.preferencesOverride = .init(theme: .light, reduceMotion: true)
@@ -561,10 +559,8 @@ private final class Actions: NSObject {
     @MainActor static func readerParity(_ output: URL) throws {
         let control = NativeModeMorphSwitch(frame: NSRect(x: 0, y: 0, width: 140, height: 32))
         control.preferencesOverride = .init(theme: .light, reduceMotion: true)
-        var modes: [NativeModeMorphSwitch.Mode] = []
-        control.onRequestMode = { modes.append($0) }
         control.pageButton.performClick(nil); control.layoutSubtreeIfNeeded()
-        try check(modes == [.originalPages] && control.displayMode == .nativeReflow && control.requestedMode == .originalPages,
+        try check(control.displayMode == .nativeReflow && control.requestedMode == .originalPages,
                   "Requested PDF does not move accepted selection")
         try check(control.reflowButton.state == .on && control.pageButton.state == .off, "AX selection follows accepted display")
         let thumb = control.layer!.sublayers![1]
@@ -572,9 +568,9 @@ private final class Actions: NSObject {
         control.displayMode = .originalPages
         try check(control.requestedMode == nil && control.pageButton.state == .on, "Acceptance commits thumb and clears loading")
         control.heldSelection = true; control.reflowButton.performClick(nil)
-        try check(modes.count == 1 && control.displayMode == .originalPages, "Held selection rejects requests")
+        try check(control.requestedMode == nil && control.displayMode == .originalPages, "Held selection rejects requests")
         control.heldSelection = false; control.allowsModeSwitch = false; control.reflowMode()
-        try check(modes.count == 1, "Unavailable mode blocks dispatch")
+        try check(control.requestedMode == nil, "Unavailable mode blocks dispatch")
         control.compact = true
         try check(control.intrinsicContentSize == NSSize(width: 80, height: 32) && control.reflowButton.title.isEmpty, "Compact geometry")
         try check(control.accessibilityRole() == .radioGroup && control.pageButton.accessibilityRole() == .radioButton, "Radio AX contract")
@@ -588,7 +584,7 @@ private final class Actions: NSObject {
         control.mouseDragged(with: pointer(.leftMouseDragged, 40)); control.layoutSubtreeIfNeeded()
         try check(thumb.frame.minX == 22, "Thumb tracks horizontal drag one-to-one")
         control.mouseUp(with: pointer(.leftMouseUp, 40)); control.layoutSubtreeIfNeeded()
-        try check(modes == [.originalPages, .nativeReflow] && thumb.frame.minX == 40, "Threshold swipe requests mode and returns to accepted slot")
+        try check(control.requestedMode == .nativeReflow && thumb.frame.minX == 40, "Threshold swipe requests mode and returns to accepted slot")
         let drawer = NativeOutlineDrawerView(frame: NSRect(x: 0, y: 0, width: 800, height: 700))
         drawer.preferencesOverride = .init(theme: .light, reduceMotion: true)
         drawer.toolbarBottom = 40

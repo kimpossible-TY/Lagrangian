@@ -215,6 +215,8 @@ locator remains historical. This executor follows the existing single-writer pla
 - [x] Document the 32-fragment limit mini pill: Highlight, Ask, Source and Editor are unavailable; Copy remains available, and Strike remains enabled when review is available but can reject the over-limit selection.
 - [x] Validate self-contained offscreen parity (9 cases, including actual layered Escape and final-paragraph/PDF reveal), existing capsule/UI regressions (24 cases) and bundle identity (2 cases), standalone Swift harnesses/app with warnings-as-errors on arm64 macOS13, strict OpenSpec and both canonical Typst documents. Interactive GUI and live installation remain outside this task.
 
+- [x] Address post-review input exclusions, scroll and hover churn, single mode request ownership, and body typography documentation; add offscreen regression cases and a cross-worktree performance benchmark.
+
 ## Remaining verification entrypoints and boundaries
 
 Redesign changes: `apps/macos/NativeReaderWindowController.swift` and existing
