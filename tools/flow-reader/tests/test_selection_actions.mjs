@@ -395,6 +395,66 @@ async function flushMicrotasks(turns = 4) {
   for (let i = 0; i < turns; i++) await Promise.resolve();
 }
 
+test("same-revision source-map recovery refetches unlocated formula excerpts without reloading", async (t) => {
+  const h = selectionControllerHarness(t);
+  const { fragments } = makeMathFragments({ blocks: 1, perBlock: [4] });
+  h.controller.syncSourceMapStatus("unavailable");
+  h.controller.selection = h.controller.copiedSelection = fragments;
+  h.controller.prefetch(fragments);
+  for (const [index, request] of h.requests.entries()) {
+    request.resolve({ status: ["unmapped", "error", "stale", "located"][index], text: "$kept$" });
+  }
+  await flushMicrotasks();
+  const located = [...h.controller.excerpts.values()].find((entry) => entry.status === "located");
+  const generation = h.controller.excerptGeneration;
+
+  h.controller.syncSourceMapStatus("verified");
+  assert.equal(h.controller.manifest, h.manifest);
+  assert.equal(h.manifest.revision, "r1");
+  assert.equal(h.controller.selection, fragments);
+  assert.ok(h.controller.excerptGeneration > generation);
+  assert.equal(h.requests.length, 7);
+  assert.ok([...h.controller.excerpts.values()].includes(located));
+  assert.equal(h.controller.copyPending(fragments), true);
+  for (const request of h.requests.slice(4)) {
+    request.resolve({ status: "located", text: `$typst_${request.body.fragments[0].exact}$` });
+  }
+  await flushMicrotasks();
+  assert.ok([...h.controller.excerpts.values()].every((entry) => entry.status === "located"));
+  assert.equal(h.controller.copyPending(fragments), false);
+  h.controller.syncSourceMapStatus("verified");
+  assert.equal(h.requests.length, 7);
+  h.controller.copySelection(fragments);
+  await flushMicrotasks();
+  assert.ok(h.clipboardWrites[0].includes("$typst_f0$"));
+  assert.ok(h.clipboardWrites[0].includes("$kept$"));
+});
+
+test("partial source-map recovery resets pending batches and ignores their late responses", async (t) => {
+  const h = selectionControllerHarness(t);
+  const { fragments } = makeMathFragments({ blocks: 1, perBlock: [6] });
+  h.controller.selection = h.controller.copiedSelection = fragments;
+  h.controller.prefetch(fragments);
+  const oldBatch = h.controller.excerptBatch;
+  const oldRequests = [...h.requests];
+  h.controller.syncSourceMapStatus("partial");
+  assert.notEqual(h.controller.excerptBatch, oldBatch);
+  assert.equal(oldBatch.queue.length, 0);
+  const launched = h.requests.length;
+  for (const request of oldRequests) request.resolve({ status: "unmapped" });
+  await flushMicrotasks();
+  assert.equal(h.requests.length, launched);
+  assert.ok([...h.controller.excerpts.values()].every((entry) => entry.status === "pending"));
+  while (h.requests.some((request) => !request.settled)) {
+    for (const request of h.requests.filter((request) => !request.settled)) {
+      request.resolve({ status: "located", text: "$recovered$" });
+    }
+    await flushMicrotasks();
+  }
+  assert.equal(h.controller.excerpts.size, 6);
+  assert.ok([...h.controller.excerpts.values()].every((entry) => entry.text === "$recovered$"));
+});
+
 test("multi-block selection prefetches 21 formulas with bounded concurrency and copies Typst without fallback", async (t) => {
   const h = selectionControllerHarness(t);
   const { fragments, total } = makeMathFragments({ blocks: 5, perBlock: [4, 4, 5, 4, 4] });

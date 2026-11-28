@@ -892,7 +892,13 @@ async function refresh(signal, current) {
   activity.refresh();
   // An identical revision can survive a service restart. New selections use
   // its new identity; already captured selections retain the old identity.
-  if (sameSnapshot(manifest, state)) manifest.service = state.service;
+  if (sameSnapshot(manifest, state)) {
+    manifest.service = state.service;
+    if (manifest.sourceMapStatus !== state.sourceMapStatus) {
+      manifest.sourceMapStatus = state.sourceMapStatus;
+      selectionActions?.syncSourceMapStatus(state.sourceMapStatus);
+    }
+  }
   terminalEditor.update(state.editorServer, state.editorAttachments);
   selectionActions?.updateActions();
   if (

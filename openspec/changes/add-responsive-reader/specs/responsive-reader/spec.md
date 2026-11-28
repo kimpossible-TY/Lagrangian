@@ -860,8 +860,11 @@ server-owned normalization, acceptance, source correspondence and final source w
 
 #### Scenario: Large ordinary document after service update
 - **WHEN** preparing an ordinary full Reader document requires longer than an interactive request
-- **THEN** its raw execution has a bounded 180-second budget
-- **AND** interactive requests, source mapping and explicit device diagnostics retain their existing limits
+- **THEN** ordinary document compilation and source-map compilation each have a bounded 180-second budget
+- **AND** interactive requests and explicit device diagnostics retain their existing limits
+- **AND** an unavailable source map retries once in the background only while the accepted document and sources remain unchanged
+- **AND** inline source mapping reuses the prepared document request and overlay, and deferred mapping reuses its recorded frozen timestamp and system-font policy
+- **AND** connected viewers observe source-map status changes and retry unlocated cached formula excerpts on the same revision without reloading the document
 - **AND** a native timeout is recorded with a fixed classification without command arguments or source paths.
 
 #### Scenario: Browser result follows the existing acceptance gate

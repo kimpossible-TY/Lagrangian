@@ -663,6 +663,20 @@ The PR #34 disk window resize owner correction registers the following 1 path fr
 `tests/flow-app/native-reader-app/TextInteractionTests.swift`.
 Hashes are Git-derived.
 
+The source map timeout recovery owner correction registers the following 9 paths from
+`0ae3e681fe2ad42b512dc10c983293e33957656d` →
+`4ec2e9b854bb2bd387b75ce0b7f7accb8774fb84`:
+`openspec/changes/add-responsive-reader/specs/responsive-reader/spec.md`,
+`tools/flow-reader/flow_reader/compiler/build.py`,
+`tools/flow-reader/flow_reader/compiler/source_map.py`,
+`tools/flow-reader/flow_reader/server/state.py`,
+`tools/flow-reader/tests/test_execution.py`,
+`tools/flow-reader/tests/test_selection_actions.mjs`,
+`tools/flow-reader/tests/test_source_mapping.py`,
+`tools/flow-reader/web/features/selection/controller.js`,
+`tools/flow-reader/web/reader.js`.
+Hashes are Git-derived.
+
 The cross-project unification owner correction registers the following 17 paths from
 `0ae3e681fe2ad42b512dc10c983293e33957656d` →
 `876f7d5dd3c6e16479095fd945b84c06df7ba33b`:
