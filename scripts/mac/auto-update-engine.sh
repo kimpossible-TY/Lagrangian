@@ -512,7 +512,9 @@ while True:
         try: Path(marker).unlink(missing_ok=True)
         except OSError as marker_exc:
             print('supervisor marker removal failed:', marker_exc, file=sys.stderr)
-        sys.exit(result() if completed is not None else 1)
+        # Preserve a failed step's status, but never report success when
+        # cleanup or confirmation failed.
+        sys.exit(result() if completed not in (None, 0) else 1)
     sys.exit(77 if completed is None else result())
 PYCODE
   if [[ "$rc" == 77 && -s "$marker" ]]; then

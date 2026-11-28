@@ -243,7 +243,7 @@ if command=='fetch-engine':
         (root/'race-child').write_text(str(child.pid))
         (root/'race-parent').write_text(str(os.getpid()))
         while not (root/'race-release').exists(): time.sleep(0.01)
-        sys.exit(9)
+        sys.exit(int(os.environ.get('RACE_EXIT', '9')))
     if (root/'fail').exists(): sys.exit(int((root/'fail').read_text()))
     child=subprocess.Popen([sys.executable,'-c','import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'], start_new_session=True)
     def on_term(*args):
@@ -368,6 +368,19 @@ PYCODE
     fi
   done
   [[ -e "$FIXTURE/gone-error-injected" ]]
+  # A successful step cannot make an unconfirmed cleanup look successful.
+  rm -f "$FIXTURE/race-release" "$FIXTURE/race-parent" "$FIXTURE/race-child" "$FIXTURE/race-marker-seen" "$FIXTURE/gone-error-injected"
+  rm -rf "$ATTEMPTS/20"
+  export PATH="$FIXTURE/bin:$saved_path" PYTHONPATH="$FIXTURE/python" INJECT_GONE_ERROR=1 RACE_EXIT=0
+  rc=0; set +e; install_run 20; rc=$?; set -e
+  export PATH="$saved_path"
+  unset PYTHONPATH INJECT_GONE_ERROR RACE_EXIT
+  [[ "$rc" == 1 && -e "$FIXTURE/gone-error-injected" && ! -e "$FIXTURE/race-marker-seen" ]]
+  [[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["state"])' "$ATTEMPTS/20/state.json")" == failed ]]
+  pid=$(cat "$FIXTURE/race-child")
+  if kill -0 "$pid" 2>/dev/null && [[ "$(ps -o stat= -p "$pid")" != Z* ]]; then
+    echo "surviving process $pid" >&2; exit 1
+  fi
   rm -f "$FIXTURE/discover-race"
   rm -rf "$ATTEMPTS/20"
   printf '20\n' > "$FIXTURE/success"
