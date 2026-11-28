@@ -7,6 +7,7 @@ import {
   labelPosition,
   TextAnnotations,
 } from "../web/rendering/annotations.js";
+import { routeConnection } from "../web/rendering/graphics/connector-routing.js";
 
 test("footnote registration groups direct callout references and preserves nested hosts", () => {
   const previousDocument = globalThis.document;
@@ -150,4 +151,227 @@ test("popovers stay within viewport edges and use the space above or below a ter
   );
   assert.ok(tall.top >= viewport.top);
   assert.ok(tall.top + tall.maxHeight <= viewport.bottom);
+});
+
+test("one outer rail uses viewport margin, stacks in reference order and reserves only article clearance", () => {
+  const previous = [
+    globalThis.document,
+    globalThis.window,
+    globalThis.innerHeight,
+    globalThis.getComputedStyle,
+    globalThis.NodeFilter,
+  ];
+  const style = () => {
+    const values = new Map();
+    return {
+      getPropertyValue: (key) => values.get(key) ?? "",
+      setProperty: (key, value) => values.set(key, value),
+      removeProperty: (key) => values.delete(key),
+    };
+  };
+  const classes = (...names) => {
+    const values = new Set(names);
+    return {
+      contains: (name) => values.has(name),
+      add: (name) => values.add(name),
+      remove: (name) => values.delete(name),
+    };
+  };
+  try {
+    let measurements = 0;
+    globalThis.NodeFilter = { SHOW_TEXT: 4 };
+    globalThis.document = {
+      documentElement: { clientWidth: 1280 },
+      createTreeWalker: () => {
+        measurements++;
+        return { nextNode: () => null };
+      },
+    };
+    globalThis.window = { getSelection: () => ({ isCollapsed: true }) };
+    globalThis.innerHeight = 800;
+    for (const leftNotes of [false, true]) {
+      for (const margin of [0, 100, 300]) {
+        const left = leftNotes ? margin : 0;
+        const width = 1280 - margin;
+        const article = {
+          style: style(),
+          classList: classes(...(leftNotes ? ["reader-paragraph-chat"] : [])),
+          dataset: {},
+          querySelectorAll: () => [],
+          getBoundingClientRect: () => ({
+            left,
+            right: left + width,
+            width,
+            top: 50,
+            bottom:
+              350 +
+              (parseFloat(article.style.getPropertyValue("--flow-side-bottom-clearance")) || 0),
+          }),
+        };
+        globalThis.getComputedStyle = () => {
+          const inset =
+            parseFloat(article.style.getPropertyValue("--flow-article-side-inset")) || 0;
+          return {
+            fontSize: "13px",
+            paddingLeft: `${36 + (leftNotes ? inset : 0)}px`,
+            paddingRight: `${36 + (leftNotes ? 0 : inset)}px`,
+          };
+        };
+        const records = [220, 100, 70].map((height, index) => {
+          const host = {
+            style: style(),
+            classList: classes(index === 1 ? "flow-callout" : "paragraph"),
+            querySelector: () => null,
+          };
+          const source = {
+            closest: () => host,
+            compareDocumentPosition: (other) => (other.index < index ? 2 : 4),
+            index,
+          };
+          const note = {
+            style: style(),
+            classList: classes(),
+            dataset: {},
+            top: 0,
+            left: 0,
+            getBoundingClientRect: () => ({
+              top: note.top,
+              bottom: note.top + height,
+              height,
+              left: note.left,
+            }),
+          };
+          return {
+            source,
+            host,
+            note,
+            nodes: [source],
+            reference: { textContent: "" },
+            kind: "footnote",
+            number: `${index + 1}`,
+            anchorTop: [100, 160, 180][index],
+          };
+        });
+        const connectedInk = [];
+        const annotations = Object.assign(Object.create(TextAnnotations.prototype), {
+          article,
+          records: new Map(
+            [records[2], records[0], records[1]].map((record) => [record.number, record]),
+          ),
+          sides: new Map(),
+          reserved: new Map(),
+          preserve: (change) => change(),
+          changed() {},
+          schedule() {},
+          fragments: (record) => [record.source],
+          rectangles: (record) => [{ top: record.anchorTop }],
+          place: (note, left, top) => Object.assign(note, { left, top }),
+          mode: (record, mode) => {
+            record.note.dataset.noteMode = mode;
+          },
+          footnoteLinks: () => [],
+          connect(host, group, labels, ink) {
+            connectedInk.push(ink);
+          },
+        });
+        measurements = 0;
+        annotations.layout();
+        assert.equal(measurements, 1);
+        assert.equal(connectedInk.length, 3);
+        assert.ok(connectedInk.every((ink) => ink === connectedInk[0]));
+        assert.deepEqual(
+          records.map((record) => record.note.top),
+          [100, 336, 452],
+        );
+        assert.equal(article.style.getPropertyValue("--flow-side-bottom-clearance"), "172px");
+        const railWidth = leftNotes ? 150 : 220;
+        assert.equal(
+          parseFloat(article.style.getPropertyValue("--flow-article-side-inset")),
+          Math.max(0, railWidth + 20 - (margin - 12)),
+        );
+        assert.ok(records.every((record) => record.note.left === records[0].note.left));
+        assert.ok(records[0].note.left >= 12);
+        assert.ok(records[0].note.left + railWidth <= 1280 - 12);
+        if (margin < railWidth + 32)
+          assert.equal(
+            leftNotes ? records[0].note.left : 1280 - records[0].note.left - railWidth,
+            12,
+            "The rail uses all available outside whitespace up to the viewport edge margin",
+          );
+        for (const { host } of records) {
+          assert.equal(host.style.getPropertyValue("--flow-side-height"), "");
+          assert.equal(host.style.getPropertyValue("--flow-side-width"), "");
+        }
+        annotations.layout();
+        assert.equal(
+          article.style.getPropertyValue("--flow-side-bottom-clearance"),
+          "172px",
+          "Clearance must not accumulate on repeated layout",
+        );
+        globalThis.innerHeight = 1400;
+        annotations.layout();
+        assert.equal(article.style.getPropertyValue("--flow-article-side-inset"), "0px");
+        assert.equal(article.style.getPropertyValue("--flow-side-bottom-clearance"), "0px");
+        assert.ok(records.every((record) => record.note.dataset.noteMode === "popover"));
+        globalThis.innerHeight = 800;
+      }
+    }
+  } finally {
+    [
+      globalThis.document,
+      globalThis.window,
+      globalThis.innerHeight,
+      globalThis.getComputedStyle,
+      globalThis.NodeFilter,
+    ] = previous;
+  }
+});
+
+test("dense side connector still paints its path and reference dot", () => {
+  const previous = globalThis.getComputedStyle;
+  globalThis.getComputedStyle = () => ({ fontSize: "13px" });
+  try {
+    const lines = { style: {}, innerHTML: "" };
+    const host = { getBoundingClientRect: () => ({ left: 0, right: 700, top: 0, bottom: 1000 }) };
+    const record = {
+      note: { id: "dense", getBoundingClientRect: () => ({ top: 900, bottom: 950 }) },
+      body: { getBoundingClientRect: () => ({ left: 700, right: 900, top: 900, bottom: 950 }) },
+    };
+    const group = { records: [record], left: 700, width: 200, leftNotes: false, lines };
+    const annotations = Object.assign(Object.create(TextAnnotations.prototype), {
+      sides: new Map([[host, group]]),
+      place() {},
+      rectangles: () => [{ left: 40, right: 60, top: 100, bottom: 110 }],
+    });
+    const ink = Array.from({ length: 300 }, (_, i) => ({
+      left: 100 + i * 1.5,
+      right: 100.5 + i * 1.5,
+      top: 90 + i * 0.08,
+      bottom: 90.03 + i * 0.08,
+    }));
+    ink.push({ left: 640, right: 642, top: 80, bottom: 140 });
+    const point = { x: 62, y: 104 };
+    const end = { x: 700, y: 904 };
+    const points = [point, { x: 692, y: 104 }, { x: 692, y: 904 }, end];
+    const localInk = ink.map((rect) => ({ ...rect, top: rect.top + 8, bottom: rect.bottom + 8 }));
+    assert.equal(
+      routeConnection(
+        { kind: "line", points, start: { anchor: "north" }, end: { anchor: "west" } },
+        localInk.concat([
+          { left: 0, right: 900, top: -1000, bottom: 0 },
+          { left: 0, right: 900, top: 1016, bottom: 2016 },
+        ]),
+        900,
+        1016,
+        13,
+      ),
+      null,
+    );
+    annotations.connect(host, group, [], ink);
+    assert.match(lines.innerHTML, /class="flow-side-connector"/);
+    assert.match(lines.innerHTML, /class="flow-side-dot"/);
+    assert.match(lines.innerHTML, /d="M62,104 L692,104 L692,904 L700,904"/);
+  } finally {
+    globalThis.getComputedStyle = previous;
+  }
 });

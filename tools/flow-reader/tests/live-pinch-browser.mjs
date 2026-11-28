@@ -153,6 +153,79 @@ try {
       await page.waitForFunction(
         () => !document.querySelector('.flow-math-view[data-math-state="pending"]'),
       );
+      // Desktop zoom uses the same preview/commit operations and anchor as touch.
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.evaluate(() => {
+        const target = document.querySelector("#passage-20");
+        scrollBy(0, target.getBoundingClientRect().top - 60);
+        pinchTest.anchorTop = target.getBoundingClientRect().top;
+        pinchTest.writes.length = 0;
+      });
+      assert.equal(
+        await page.evaluate(() => {
+          const event = new WheelEvent("wheel", { ctrlKey: true, deltaY: -80, cancelable: true });
+          window.dispatchEvent(event);
+          return (
+            event.defaultPrevented &&
+            document.querySelector("#reader-size").value === "27" &&
+            pinchTest.writes.length === 0
+          );
+        }),
+        true,
+      );
+      await page.waitForFunction(() => pinchTest.writes.length === 1);
+      assert.deepEqual(await page.evaluate(() => pinchTest.writes), ["27"]);
+      assert.ok(
+        await page.evaluate(
+          () =>
+            Math.abs(
+              document.querySelector("#passage-20").getBoundingClientRect().top -
+                pinchTest.anchorTop,
+            ) < 2,
+        ),
+      );
+      assert.equal(
+        await page.evaluate(() => {
+          for (const [type, scale] of [
+            ["gesturestart", 1],
+            ["gesturechange", 0.8],
+            ["gestureend", 0.8],
+          ]) {
+            const event = new Event(type, { cancelable: true });
+            Object.defineProperty(event, "scale", { value: scale });
+            window.dispatchEvent(event);
+            if (!event.defaultPrevented) return false;
+          }
+          return true;
+        }),
+        true,
+      );
+      assert.equal(await page.locator("#reader-size").evaluate((node) => node.value), "22");
+      for (const [key, code, expected] of [
+        ["=", "Equal", "23"],
+        ["+", "NumpadAdd", "24"],
+        ["-", "NumpadSubtract", "23"],
+        ["0", "Numpad0", "13"],
+      ]) {
+        assert.equal(
+          await page.evaluate(
+            ({ key, code }) => {
+              const event = new KeyboardEvent("keydown", {
+                ctrlKey: true,
+                key,
+                code,
+                cancelable: true,
+              });
+              window.dispatchEvent(event);
+              return event.defaultPrevented;
+            },
+            { key, code },
+          ),
+          true,
+        );
+        assert.equal(await page.locator("#reader-size").evaluate((node) => node.value), expected);
+      }
+      assert.equal(await page.evaluate(() => visualViewport.scale), 1);
       await page.addScriptTag({ type: "module", url: "/reading-navigation-browser.js" });
       await page.waitForFunction(() => document.body.dataset.readingNavigationState, undefined, {
         timeout: 30000,
@@ -161,7 +234,7 @@ try {
       assert.deepEqual(report.errors, []);
       assert.deepEqual(errors, []);
       console.log(
-        `${engine}: live body/math size, stable reading anchor, one preference write and ${report.checks.length} gesture checks passed`,
+        `${engine}: touch, Ctrl wheel, Safari scale and keyboard font reflow preserve the reading anchor`,
       );
     } finally {
       await browser.close();

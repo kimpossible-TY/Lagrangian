@@ -62,6 +62,50 @@ async function widerContainer(source) {
     host.remove();
   }
 }
+async function overflowFallback() {
+  const host = document.createElement("div");
+  host.style.cssText = "position:fixed;left:-100000px;top:0;width:180px;font:18px serif";
+  host.setAttribute("aria-hidden", "true");
+  host.inert = true;
+  host.innerHTML = `<p id="fitted-overhang"><span class="flow-inline-equation"><math><msub><mi>w</mi><mi>s</mi></msub><mover accent="true"><mi>u</mi><mo>^</mo></mover><mo>=</mo><mover accent="true"><mi>f</mi><mo>^</mo></mover></math></span></p>
+    <p id="excess-overflow"><span class="flow-inline-equation"><math><mfrac><mi>${"W".repeat(28)}</mi><mi>x</mi></mfrac></math></span></p>`;
+  document.body.append(host);
+  const renderer = new ResponsiveMath(host, {
+    preserve: (change) => change(),
+    changed() {},
+    selectionActive: () => false,
+  });
+  try {
+    renderer.prepare(host);
+    renderer.sync();
+    const fitted = host.querySelector("#fitted-overhang .flow-math-view");
+    await until(() => fitted.dataset.mathState === "ready", "fitted italic/accent overhang");
+    check(
+      "Short italic and accented mathematics has visible overflow without scrollbars",
+      !fitted.parentElement.hasAttribute("data-math-overflow") &&
+        getComputedStyle(fitted.parentElement).overflowX === "visible" &&
+        getComputedStyle(fitted.parentElement).overflowY === "visible",
+    );
+    const view = host.querySelector("#excess-overflow .flow-math-view");
+    const wrapper = view.parentElement;
+    await until(() => view.dataset.mathState === "overflow", "indivisible inline overflow");
+    check(
+      "Genuine inline overflow enables horizontal scrolling",
+      wrapper.dataset.mathOverflow === "true" && getComputedStyle(wrapper).overflowX === "auto",
+    );
+    host.style.width = "1600px";
+    renderer.schedule();
+    await until(() => view.dataset.mathState === "ready", "fitted inline overflow recovery");
+    check(
+      "A fitted formula releases its former scrollbar",
+      !wrapper.hasAttribute("data-math-overflow") &&
+        getComputedStyle(wrapper).overflowX === "visible",
+    );
+  } finally {
+    renderer.dispose();
+    host.remove();
+  }
+}
 try {
   await until(() => document.querySelector("#wide-inline .flow-math-view"), "source content");
   const doc = new DOMParser().parseFromString(
@@ -97,6 +141,17 @@ try {
     );
     check(`${font}px long inline math composes in the body`, wide.dataset.mathLayout === "block");
     check(`${font}px short mathematics stays inline`, short.dataset.mathLayout === "inline");
+    check(
+      `${font}px fitted inline formulas expose overhang without a scrollbar`,
+      [short, control, linked, wide].every((view) => {
+        const wrapper = view.closest(".flow-inline-equation");
+        return (
+          !wrapper.hasAttribute("data-math-overflow") &&
+          getComputedStyle(wrapper).overflowX === "visible" &&
+          getComputedStyle(wrapper).overflowY === "visible"
+        );
+      }),
+    );
     check(
       `${font}px the reading size is preserved`,
       parseFloat(getComputedStyle(wide).fontSize) === font,
@@ -160,6 +215,7 @@ try {
     });
   }
   await widerContainer(doc.querySelector("#wide-inline math"));
+  await overflowFallback();
   wide.scrollIntoView({ block: "center" });
   report.width = innerWidth;
   document.body.dataset.inlineState = report.errors.length ? "error" : "ready";

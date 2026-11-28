@@ -316,6 +316,9 @@ try {
     node.dataset.originalBody = "true";
   });
 
+  await page.evaluate(() =>
+    document.querySelector("#reader-document").classList.remove("reader-paragraph-chat"),
+  );
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.waitForFunction(
     () => document.querySelector("#reader-document").dataset.annotationLayout === "side",
@@ -332,15 +335,12 @@ try {
       );
       const h = target.closest(".flow-equation,p").getBoundingClientRect();
       const r = note.getBoundingClientRect();
-      return (
-        r.top >= h.top &&
-        r.bottom <= h.bottom + 1 &&
-        r.right <= h.right + 1 &&
-        r.left >=
-          h.right -
-            parseFloat(getComputedStyle(target.closest(".flow-equation,p")).paddingRight) +
-            19
-      );
+      const left = document
+        .querySelector("#reader-document")
+        .classList.contains("reader-paragraph-chat");
+      return left
+        ? r.right <= h.left - 19 && r.left >= 12
+        : r.left >= h.right + 19 && r.right <= innerWidth - 12;
     }),
   );
   check(
@@ -355,18 +355,8 @@ try {
     .locator('.flow-note[data-note-mode="side"]')
     .evaluateAll((notes) => notes.map((n) => n.getBoundingClientRect().toJSON()));
   check(
-    "Side notes stack without overlapping each other",
-    rail.every((r, i) =>
-      rail
-        .slice(i + 1)
-        .every(
-          (s) =>
-            r.bottom <= s.top + 1 ||
-            s.bottom <= r.top + 1 ||
-            r.right <= s.left + 1 ||
-            s.right <= r.left + 1,
-        ),
-    ),
+    "Side notes stack in document order with a 16px gap",
+    rail.every((r, i) => !i || r.top >= rail[i - 1].bottom + 15.5),
   );
   check(
     "Side notes do not introduce horizontal page movement",
@@ -393,13 +383,14 @@ try {
         const host = target.closest(".flow-equation,p");
         const h = host.getBoundingClientRect(),
           r = note.getBoundingClientRect();
-        const padding = parseFloat(getComputedStyle(host).paddingRight);
         return (
           host.classList.contains("flow-annotation-side") &&
-          r.left >= h.right - padding + 19 &&
-          r.right <= h.right + 1 &&
-          r.top >= h.top &&
-          r.bottom <= h.bottom + 1
+          (article.classList.contains("reader-paragraph-chat")
+            ? r.right <= h.left - 19 && r.left >= 12
+            : r.left >= h.right + 19 && r.right <= innerWidth - 12) &&
+          ["0px", "auto"].includes(getComputedStyle(host).minBlockSize) &&
+          parseFloat(getComputedStyle(host).paddingRight) <=
+            parseFloat(getComputedStyle(host).fontSize) * 0.2 + 1
         );
       }),
       untouched: [...article.querySelectorAll(".flow-equation,p")]
@@ -413,11 +404,11 @@ try {
   });
   check(
     "Tablet prose uses the wider reading canvas",
-    localRails.contentWidth >= 1000 &&
+    localRails.contentWidth >= 700 &&
       Math.abs(localRails.ordinaryWidth - localRails.contentWidth) < 1,
   );
   check(
-    "Side notes fit inside the width and height of their own annotated row",
+    "Side notes sit outside uniformly aligned passages without host inflation",
     localRails.contained,
   );
   check("Unannotated passages reserve no side-note space", localRails.untouched);
@@ -456,15 +447,12 @@ try {
     "Side connectors avoid visible mathematical glyphs and equation numbers",
     await page.evaluate(() =>
       [...document.querySelectorAll(".flow-side-connector")].every((path) => {
-        const note = document.getElementById(path.dataset.note);
-        const target = [...document.querySelectorAll(`[data-reader-note~="${note.id}"]`)].find(
-          (n) => !n.closest("mjx-assistive-mml,.flow-math-stage"),
-        );
-        const host = target.closest(".flow-equation,p");
         const ink = [
-          ...host.querySelectorAll(
-            "mjx-c,mjx-utext,mjx-stretchy-h,mjx-stretchy-v,.flow-equation-number",
-          ),
+          ...document
+            .querySelector("#reader-document")
+            .querySelectorAll(
+              'mjx-c,mjx-utext,mjx-stretchy-h,mjx-stretchy-v,.flow-equation-number,.flow-note[data-note-mode="label"]',
+            ),
         ]
           .filter((n) => !n.closest("mjx-assistive-mml,.flow-math-stage"))
           .flatMap((n) => [...n.getClientRects()])
@@ -540,7 +528,9 @@ try {
         .find((id) => document.getElementById(id)?.dataset.noteKind === "footnote");
       const footnote = document.getElementById(footnoteID);
       const labelBoxes = labels.map((label) => label.getBoundingClientRect());
-      const paths = [...host.nextElementSibling.querySelectorAll(".flow-side-connector")];
+      const paths = [...document.querySelectorAll(".flow-side-connector")].filter(
+        (path) => path.dataset.note === footnoteID,
+      );
       const clear = paths.every((path) => {
         const matrix = path.getScreenCTM(),
           length = path.getTotalLength();

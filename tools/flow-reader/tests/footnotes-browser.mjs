@@ -66,8 +66,7 @@ try {
           (note) =>
             note?.dataset.noteMode === "side" &&
             note.parentElement.parentElement === callout.parentElement &&
-            Math.abs(note.getBoundingClientRect().top - callout.getBoundingClientRect().top) <
-              callout.getBoundingClientRect().height,
+            note.getBoundingClientRect().right <= callout.getBoundingClientRect().left - 16,
         ) &&
         paragraph.classList.contains("flow-annotation-side") &&
         document.getElementById(paragraph.querySelector('[role="doc-noteref"]').dataset.readerNote)
@@ -120,7 +119,7 @@ try {
     }, font);
     await settle(page);
     check(
-      `${font}px footnotes stay in local rows with visible connected dividers`,
+      `${font}px footnotes occupy a shared outer rail with visible connectors`,
       await page.evaluate(() =>
         [...document.querySelectorAll('[data-note-kind="footnote"]')].every((note) => {
           const path = document.querySelector(`path[data-note="${note.id}"]`);
@@ -131,6 +130,8 @@ try {
             r.top >= h.top &&
             r.bottom <= h.bottom + 1 &&
             r.right <= h.right + 1 &&
+            r.left >= 12 &&
+            r.right <= document.documentElement.clientWidth - 12 &&
             getComputedStyle(path).fill === "none"
           );
         }),
@@ -151,7 +152,7 @@ try {
         const refs = [...callout.querySelectorAll('[role="doc-noteref"][data-reader-note]')];
         const notes = refs.map((ref) => document.getElementById(ref.dataset.readerNote));
         const bounds = callout.getBoundingClientRect();
-        const borderRight = bounds.left + parseFloat(getComputedStyle(callout).borderLeftWidth);
+        const borderLeft = bounds.left;
         const ink = [];
         const walker = document.createTreeWalker(callout, NodeFilter.SHOW_TEXT);
         for (let text = walker.nextNode(); text; text = walker.nextNode()) {
@@ -174,7 +175,7 @@ try {
           notes.every((note) => {
             const body = note.querySelector(".flow-note-body").getBoundingClientRect();
             return (
-              body.left >= borderRight &&
+              note.getBoundingClientRect().right <= borderLeft - 16 &&
               ink.every(
                 (rect) =>
                   rect.width === 0 ||
@@ -190,19 +191,25 @@ try {
       }),
     );
     check(
-      `${font}px ordinary footnotes retain their left margin outset`,
-      await page.evaluate((target) => {
-        const note = document.querySelector(`[data-footnote-target="${target}"]`);
-        const path = document.querySelector(`path[data-note="${note.id}"]`);
-        const host = path.ownerSVGElement.previousElementSibling;
-        const hostLeft = host.getBoundingClientRect().left;
+      `${font}px all side notes share one outer edge without host padding or minimum height`,
+      await page.evaluate(() => {
+        const notes = [...document.querySelectorAll('[data-note-mode="side"]')];
+        const edge = notes[0].getBoundingClientRect().left;
         return (
-          Math.abs(
-            note.getBoundingClientRect().left -
-              (hostLeft - Math.min(60, Math.max(0, hostLeft - 12))),
-          ) < 1
+          notes.every((note) => Math.abs(note.getBoundingClientRect().left - edge) < 1) &&
+          [...document.querySelectorAll(".flow-annotation-side")].every((host) => {
+            const style = getComputedStyle(host);
+            return (
+              ["0px", "auto"].includes(style.minBlockSize) &&
+              !host.style.getPropertyValue("--flow-side-width") &&
+              !host.style.getPropertyValue("--flow-side-height") &&
+              (host.classList.contains("flow-callout")
+                ? parseFloat(style.paddingLeft) <= parseFloat(style.fontSize) + 1
+                : parseFloat(style.paddingLeft) <= parseFloat(style.fontSize) * 0.2 + 1)
+            );
+          })
         );
-      }, target),
+      }),
     );
   }
   const link = page.locator(`[role="doc-noteref"] a[href="#${target}"]`).first();
@@ -215,6 +222,92 @@ try {
         !document.querySelector('[role="doc-endnotes"]'),
     ),
   );
+  const stress = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  stress.on("pageerror", (error) => errors.push(String(error)));
+  await stress.goto(origin);
+  await stress.waitForFunction(
+    () => document.querySelectorAll('[data-note-mode="side"]').length === 8,
+  );
+  await stress.evaluate(() => {
+    [...document.querySelectorAll("p")]
+      .filter((p) => p.textContent.startsWith("Ordinary paragraph"))
+      .slice(2)
+      .forEach((p) => p.remove());
+    document
+      .querySelector(".flow-note-body")
+      .append(
+        document.createTextNode(
+          " A very long side note continues beside later paragraphs and equations.".repeat(80),
+        ),
+      );
+  });
+  for (const left of [true, false]) {
+    await stress.evaluate(
+      (left) =>
+        document.querySelector("#reader-document").classList.toggle("reader-paragraph-chat", left),
+      left,
+    );
+    // Font changes explicitly invalidate annotation geometry as well as math.
+    await stress.keyboard.press("Control+=");
+    await settle(stress);
+    check(
+      `${left ? "Left" : "Right"} rail stacks long notes across hosts without inflating the body`,
+      await stress.evaluate(() => {
+        const article = document.querySelector("#reader-document");
+        const left = article.classList.contains("reader-paragraph-chat");
+        const refs = [...article.querySelectorAll('[role="doc-noteref"][data-reader-note]')].filter(
+          (ref) => !ref.closest("mjx-assistive-mml,.flow-note"),
+        );
+        const notes = [
+          ...new Set(refs.map((ref) => document.getElementById(ref.dataset.readerNote))),
+        ];
+        const boxes = notes.map((note) => note.getBoundingClientRect());
+        const callout = article.querySelector(".flow-callout");
+        const bounds = callout.getBoundingClientRect();
+        const height = bounds.height;
+        callout.querySelectorAll(".flow-notes").forEach((node) => (node.hidden = true));
+        const naturalHeight = callout.getBoundingClientRect().height;
+        callout.querySelectorAll(".flow-notes").forEach((node) => (node.hidden = false));
+        const host = refs[0].closest("p");
+        const following = host.nextElementSibling.nextElementSibling;
+        return (
+          Math.abs(height - naturalHeight) < 1 &&
+          following.getBoundingClientRect().top - host.getBoundingClientRect().bottom < 40 &&
+          boxes[0].height > host.getBoundingClientRect().height * 4 &&
+          boxes.every(
+            (box, i) =>
+              box.left >= 12 &&
+              box.right <= innerWidth - 12 &&
+              (!i || box.top >= boxes[i - 1].bottom + 15.5),
+          ) &&
+          notes.every((note) => Boolean(document.querySelector(`path[data-note="${note.id}"]`))) &&
+          refs
+            .filter((ref) => callout.contains(ref))
+            .every((ref) => {
+              const box = document.getElementById(ref.dataset.readerNote).getBoundingClientRect();
+              return left ? box.right <= bounds.left - 16 : box.left >= bounds.right + 16;
+            }) &&
+          parseFloat(article.style.getPropertyValue("--flow-side-bottom-clearance")) > 0 &&
+          article.getBoundingClientRect().bottom >= boxes.at(-1).bottom - 1
+        );
+      }),
+    );
+    const clearance = await stress.evaluate(() =>
+      document
+        .querySelector("#reader-document")
+        .style.getPropertyValue("--flow-side-bottom-clearance"),
+    );
+    await settle(stress);
+    check(
+      `${left ? "Left" : "Right"} rail bottom clearance remains stable across repeated frames`,
+      (await stress.evaluate(() =>
+        document
+          .querySelector("#reader-document")
+          .style.getPropertyValue("--flow-side-bottom-clearance"),
+      )) === clearance,
+    );
+  }
+  await stress.close();
   await page.screenshot({ path: `${output}/landscape.png` });
   await page.setViewportSize({ width: 1024, height: 1366 });
   await page.waitForFunction(() => !document.querySelector(".flow-side-lines"));

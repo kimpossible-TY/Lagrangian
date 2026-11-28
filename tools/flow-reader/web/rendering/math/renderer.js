@@ -420,6 +420,11 @@ export class ResponsiveMath {
               bounds = overflowBounds();
             }
             const overflow = Math.max(bounds.left, bounds.right) > 1;
+            const inline = record.view.parentElement;
+            if (inline.matches(".flow-inline-equation")) {
+              if (overflow) inline.dataset.mathOverflow = "true";
+              else delete inline.dataset.mathOverflow;
+            }
             record.view.dataset.mathState = overflow ? "overflow" : "ready";
             this.notice(
               record,
