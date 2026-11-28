@@ -483,6 +483,7 @@ while True:
     newer = query_newer()
     if proc.poll() is not None: sys.exit(result())
     if newer is None: continue
+    completed = None
     try:
         discover()
         completed = proc.poll()
@@ -503,11 +504,15 @@ while True:
             time.sleep(0.05)
     except (OSError, subprocess.SubprocessError, TimeoutError) as exc:
         print('supervisor cleanup failed:', exc, file=sys.stderr)
-        send(signal.SIGKILL)
-        try: proc.wait(timeout=2)
-        except subprocess.TimeoutExpired: pass
-        Path(marker).unlink(missing_ok=True)
-        sys.exit(1)
+        try:
+            send(signal.SIGKILL)
+            proc.wait(timeout=2)
+        except (OSError, subprocess.SubprocessError) as cleanup_exc:
+            print('supervisor cleanup retry failed:', cleanup_exc, file=sys.stderr)
+        try: Path(marker).unlink(missing_ok=True)
+        except OSError as marker_exc:
+            print('supervisor marker removal failed:', marker_exc, file=sys.stderr)
+        sys.exit(result() if completed is not None else 1)
     sys.exit(77 if completed is None else result())
 PYCODE
   if [[ "$rc" == 77 && -s "$marker" ]]; then

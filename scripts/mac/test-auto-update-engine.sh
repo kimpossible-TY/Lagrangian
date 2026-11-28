@@ -340,15 +340,34 @@ EOF
   chmod +x "$FIXTURE/bin/ps"
   touch "$FIXTURE/discover-race"
   printf '21\n' > "$FIXTURE/success"
-  export PATH="$FIXTURE/bin:$saved_path"
-  rc=0; set +e; install_run 20; rc=$?; set -e
-  export PATH="$saved_path"
-  [[ "$rc" == 9 && ! -e "$FIXTURE/race-marker-seen" ]]
-  [[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["state"])' "$ATTEMPTS/20/state.json")" == failed ]]
-  pid=$(cat "$FIXTURE/race-child")
-  if kill -0 "$pid" 2>/dev/null && [[ "$(ps -o stat= -p "$pid")" != Z* ]]; then
-    echo "surviving process $pid" >&2; exit 1
-  fi
+  mkdir -p "$FIXTURE/python"
+  cat > "$FIXTURE/python/sitecustomize.py" <<'PYCODE'
+import os, sys
+from pathlib import Path
+if sys.argv[0] == '-' and os.environ.get('INJECT_GONE_ERROR') == '1':
+    original_killpg = os.killpg
+    def killpg(pid, sig):
+        if sig == 0:
+            Path(os.environ['FIXTURE'], 'gone-error-injected').touch()
+            raise OSError('injected cleanup confirmation failure')
+        return original_killpg(pid, sig)
+    os.killpg = killpg
+PYCODE
+  for inject_error in 0 1; do
+    rm -f "$FIXTURE/race-release" "$FIXTURE/race-parent" "$FIXTURE/race-child" "$FIXTURE/race-marker-seen"
+    rm -rf "$ATTEMPTS/20"
+    export PATH="$FIXTURE/bin:$saved_path" PYTHONPATH="$FIXTURE/python" INJECT_GONE_ERROR="$inject_error"
+    rc=0; set +e; install_run 20; rc=$?; set -e
+    export PATH="$saved_path"
+    unset PYTHONPATH INJECT_GONE_ERROR
+    [[ "$rc" == 9 && ! -e "$FIXTURE/race-marker-seen" ]]
+    [[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["state"])' "$ATTEMPTS/20/state.json")" == failed ]]
+    pid=$(cat "$FIXTURE/race-child")
+    if kill -0 "$pid" 2>/dev/null && [[ "$(ps -o stat= -p "$pid")" != Z* ]]; then
+      echo "surviving process $pid" >&2; exit 1
+    fi
+  done
+  [[ -e "$FIXTURE/gone-error-injected" ]]
   rm -f "$FIXTURE/discover-race"
   rm -rf "$ATTEMPTS/20"
   printf '20\n' > "$FIXTURE/success"
