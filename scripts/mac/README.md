@@ -20,11 +20,15 @@ step checks for a newer success at the interval set by
 the step's process group and discovered descendants; the run ends as
 superseded (exit 77), and selection runs again without delay.
 
-On SIGTERM, SIGINT or SIGHUP, the step supervisor terminates the step process
-group and discovered descendants, stops any in-flight newer-run query process
-group, and exits 143, 130 or 129 respectively. Cleanup sends SIGTERM during
-an approximately one-second grace period, then SIGKILL, and reaps the direct
-child. Further signals during cleanup preserve the first signal's exit code.
+During a supervised installation step, SIGTERM, SIGINT or SIGHUP to the main
+updater process is forwarded as SIGTERM through `install_run` and the step
+supervisor. The supervisor terminates the step process group and discovered
+descendants and stops any in-flight newer-run query process group. The updater
+waits for cleanup and exits 143, 130 or 129 respectively. Cleanup sends SIGTERM
+during an approximately one-second grace period, then SIGKILL, and reaps the direct child.
+Further signals during cleanup preserve the first signal's exit code. Outside
+an installation, during `gh run watch` or the idle sleep, the signal ends the
+updater directly because no installation step is running.
 
 The claim for a run is
 `$HOME/Library/Application Support/Lagrangian/update-attempts/<run>/state.json`.
