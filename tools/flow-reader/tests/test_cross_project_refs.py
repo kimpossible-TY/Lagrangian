@@ -116,6 +116,57 @@ class CatalogTests(Fixture):
                            ('https://different.test/book.pdf#page=2', None), ('http://[broken', None)]:
             self.assertEqual(catalog.resolve(href=href, link_text=text)['status'], 'unresolved')
 
+    def test_catalog_nfc_lookup_preserves_query_and_display_values(self):
+        key, decomposed_key = '대수학-노트', '\u1103\u1162\u1109\u116e\u1112\u1161\u11a8-\u1102\u1169\u1110\u1173'
+        label, decomposed_label = '정리', '\u110c\u1165\u11bc\u1105\u1175'
+        for stored_key, query_key in ((key, decomposed_key), (decomposed_key, key)):
+            with self.subTest(stored_key=stored_key):
+                project = {'title': decomposed_key, 'pdf_url': PDF,
+                           'references': {label: {'page': 2, 'text': decomposed_label}},
+                           'ambiguous_labels': []}
+                self.write_catalog({'schema': 1, 'projects': {stored_key: project}})
+                catalog = self.load()
+                result = catalog.resolve(project_key=query_key, label=decomposed_label)
+                self.assertEqual((result['status'], result['projectKey'], result['label'],
+                                  result['projectTitle'], result['refText']),
+                                 ('unique', query_key, decomposed_label, decomposed_key, decomposed_label))
+                self.assertEqual(catalog.projects, {stored_key: project})
+                for text in (label, label + ' of ' + key):
+                    result = catalog.resolve(href=PDF + '#page=2', link_text=text)
+                    self.assertEqual((result['status'], result['projectKey'], result['label']),
+                                     ('unique', stored_key, label))
+                project['ambiguous_labels'] = [decomposed_label]
+                self.write_catalog({'schema': 1, 'projects': {stored_key: project}})
+                catalog = self.load()
+                for spelling in (label, decomposed_label):
+                    self.assertEqual(catalog.resolve(project_key=query_key, label=spelling),
+                                     {'status': 'ambiguous', 'candidates': []})
+                self.assertEqual(catalog.resolve(href=PDF + '#page=2')['status'], 'ambiguous')
+
+    def test_canonically_equivalent_project_keys_fail_closed(self):
+        key, decomposed = '대수학-노트', '\u1103\u1162\u1109\u116e\u1112\u1161\u11a8-\u1102\u1169\u1110\u1173'
+        project = catalog_data()['projects']['book']
+        other = dict(project, pdf_url='https://example.test/other.pdf')
+        self.write_catalog({'schema': 1, 'projects': {key: project, decomposed: other}})
+        catalog = self.load()
+        self.assertEqual(len(catalog.projects), 2)
+        for spelling in (key, decomposed):
+            self.assertEqual(catalog.resolve(project_key=spelling, label='theorem'),
+                             {'status': 'ambiguous', 'candidates': []})
+        self.assertEqual(catalog.resolve(href=PDF+'#page=2')['status'], 'ambiguous')
+
+    def test_canonically_equivalent_reference_keys_fail_closed(self):
+        label, decomposed = '정리', '\u110c\u1165\u11bc\u1105\u1175'
+        data = catalog_data()
+        data['projects']['book']['references'] = {label: {'page': 2, 'text': 'First'},
+                                                 decomposed: {'page': 3, 'text': 'Second'}}
+        self.write_catalog(data)
+        catalog = self.load()
+        for spelling in (label, decomposed):
+            self.assertEqual(catalog.resolve(project_key='book', label=spelling),
+                             {'status': 'ambiguous', 'candidates': []})
+        self.assertEqual(catalog.resolve(href=PDF+'#page=2')['status'], 'ambiguous')
+
     def test_multiple_projects_and_bounded_sorted_candidates(self):
         data = catalog_data()
         for index in range(40):

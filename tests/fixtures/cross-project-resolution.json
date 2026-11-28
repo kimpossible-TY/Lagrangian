@@ -711,6 +711,83 @@
         "label": null,
         "profileID": null
       }
+    },
+    {
+      "name": "NFD Korean root basename matches NFC catalog key",
+      "catalog": {
+        "schema": 1,
+        "projects": {
+          "\ub300\uc218\ud559-\ub178\ud2b8": {
+            "title": "\ub300\uc218\ud559-\ub178\ud2b8",
+            "pdf_url": "https://example.test/book.pdf",
+            "references": {
+              "thm": {
+                "page": 2,
+                "text": "Theorem 1"
+              }
+            },
+            "ambiguous_labels": [
+              "duplicate"
+            ]
+          }
+        }
+      },
+      "profiles": [
+        {
+          "id": "p1",
+          "name": "Other",
+          "root": "/work/\u1103\u1162\u1109\u116e\u1112\u1161\u11a8-\u1102\u1169\u1110\u1173"
+        }
+      ],
+      "query": {
+        "project_key": "\ub300\uc218\ud559-\ub178\ud2b8",
+        "label": "thm"
+      },
+      "expected": {
+        "status": "unique",
+        "projectKey": "\ub300\uc218\ud559-\ub178\ud2b8",
+        "label": "thm",
+        "profileID": "p1"
+      }
+    },
+    {
+      "name": "NFD Korean projectRefKey matches NFC catalog key",
+      "catalog": {
+        "schema": 1,
+        "projects": {
+          "\ub300\uc218\ud559-\ub178\ud2b8": {
+            "title": "\ub300\uc218\ud559-\ub178\ud2b8",
+            "pdf_url": "https://example.test/book.pdf",
+            "references": {
+              "thm": {
+                "page": 2,
+                "text": "Theorem 1"
+              }
+            },
+            "ambiguous_labels": [
+              "duplicate"
+            ]
+          }
+        }
+      },
+      "profiles": [
+        {
+          "id": "p1",
+          "name": "Other",
+          "root": "/work/other",
+          "projectRefKey": "\u1103\u1162\u1109\u116e\u1112\u1161\u11a8-\u1102\u1169\u1110\u1173"
+        }
+      ],
+      "query": {
+        "project_key": "\ub300\uc218\ud559-\ub178\ud2b8",
+        "label": "thm"
+      },
+      "expected": {
+        "status": "unique",
+        "projectKey": "\ub300\uc218\ud559-\ub178\ud2b8",
+        "label": "thm",
+        "profileID": "p1"
+      }
     }
   ],
   "snippets": [
@@ -1172,6 +1249,28 @@
       "reference_text": null,
       "max_blocks": 0,
       "expected": null
+    },
+    {
+      "name": "NFD Korean anchor matches NFC label without changing displayed text",
+      "blocks": [
+        {
+          "id": "block",
+          "sectionID": "s",
+          "kind": "text",
+          "displayText": "\u1103\u1162\u1109\u116e\u1112\u1161\u11a8-\u1102\u1169\u1110\u1173",
+          "canonicalText": "\ub300\uc218\ud559-\ub178\ud2b8",
+          "anchors": [
+            "\u110c\u1165\u11bc\u1105\u1175"
+          ],
+          "children": []
+        }
+      ],
+      "label": "\uc815\ub9ac",
+      "reference_text": null,
+      "expected": {
+        "text": "\u1103\u1162\u1109\u116e\u1112\u1161\u11a8-\u1102\u1169\u1110\u1173",
+        "truncated": false
+      }
     }
   ]
 }

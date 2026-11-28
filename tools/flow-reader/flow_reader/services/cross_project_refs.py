@@ -46,6 +46,19 @@ def _string(value):
     return value
 
 
+def _nfc(value):
+    return unicodedata.normalize("NFC", value)
+
+
+def _nfc_index(keys):
+    """Keep original spellings; canonical collisions must never pick a winner."""
+    result = {}
+    for key in keys:
+        canonical = _nfc(key)
+        result[canonical] = None if canonical in result else key
+    return result
+
+
 def _metadata(target):
     return {key: value[:MAX_PARAM_CHARS] if isinstance(value, str) else value
             for key, value in target.items()}
@@ -98,6 +111,12 @@ def _signature(info):
 class CrossProjectCatalog:
     def __init__(self, projects):
         self.projects = projects
+        # Swift's decoder coalesces equivalent keys. Retain all source values
+        # here and fail closed on collisions instead of choosing one entry.
+        self._project_keys = _nfc_index(projects)
+        self._reference_keys = {key: _nfc_index(project["references"]) for key, project in projects.items()}
+        self._ambiguous_labels = {key: {_nfc(label) for label in project["ambiguous_labels"]}
+                                  for key, project in projects.items()}
 
     @classmethod
     def load(cls, package_path, max_bytes=MAX_CATALOG_BYTES):
@@ -143,22 +162,30 @@ class CrossProjectCatalog:
         except (OSError, ValueError, TypeError, KeyError, OverflowError, RuntimeError):
             raise ValueError("Project reference catalog unavailable or invalid") from None
 
-    def _target(self, key, label):
-        project = self.projects[key]
-        entry = project["references"][label]
+    def _target(self, key, label, project, entry):
         return {"projectKey": key, "projectTitle": project["title"], "label": label,
                 "refText": entry["text"], "title": entry["text"], "pdfUrl": _pdf_url(project["pdf_url"])}
 
     def resolve(self, project_key=None, label=None, href=None, link_text=None):
         if project_key is not None or label is not None:
-            project = self.projects.get(project_key)
-            if project is None:
+            if not isinstance(project_key, str) or not isinstance(label, str):
                 return {"status": "unresolved"}
-            if label in project["ambiguous_labels"]:
+            canonical_key, canonical_label = _nfc(project_key), _nfc(label)
+            if canonical_key not in self._project_keys:
+                return {"status": "unresolved"}
+            key = self._project_keys[canonical_key]
+            if key is None:
                 return {"status": "ambiguous", "candidates": []}
-            if label not in project["references"]:
+            project = self.projects[key]
+            references = self._reference_keys[key]
+            if canonical_label in self._ambiguous_labels[key]:
+                return {"status": "ambiguous", "candidates": []}
+            if canonical_label not in references:
                 return {"status": "unresolved"}
-            return {"status": "unique", **self._target(project_key, label)}
+            reference = references[canonical_label]
+            if reference is None:
+                return {"status": "ambiguous", "candidates": []}
+            return {"status": "unique", **self._target(project_key, label, project, project["references"][reference])}
         try:
             url = urlsplit(href or "")
             fragment = unquote(url.fragment)
@@ -175,13 +202,15 @@ class CrossProjectCatalog:
             if project["pdf_url"] != pdf:
                 continue
             for label, entry in sorted(project["references"].items()):
-                if entry["page"] != page or (link_text is not None and link_text not in
-                        {entry["text"], entry["text"] + " of " + project["title"]}):
+                if entry["page"] != page or (link_text is not None and _nfc(link_text) not in
+                        {_nfc(entry["text"]), _nfc(entry["text"] + " of " + project["title"])}):
                     continue
                 count += 1
-                ambiguous |= label in project["ambiguous_labels"]
+                ambiguous |= (self._project_keys[_nfc(key)] is None
+                              or self._reference_keys[key][_nfc(label)] is None
+                              or _nfc(label) in self._ambiguous_labels[key])
                 if len(candidates) < MAX_CANDIDATES:
-                    candidates.append(self._target(key, label))
+                    candidates.append(self._target(key, label, project, entry))
         if not count:
             return {"status": "unresolved"}
         if count == 1 and not ambiguous:
@@ -260,10 +289,10 @@ def extract_snippet(native_document, label, reference_text=None, max_chars=600, 
         yield block
         for child in block.get("children", []):
             yield from nodes(child)
-    anchor = (label or "").strip()
+    anchor = _nfc((label or "").strip())
     query = " ".join((reference_text or "").split())
     match = next(((i, n) for i, b in enumerate(blocks) for n in nodes(b) if anchor and
-                  anchor in n.get("anchors", [])), None)
+                  any(anchor == _nfc(candidate) for candidate in n.get("anchors", []))), None)
     if match is None and query:
         match = next(((i, b) for i, b in enumerate(blocks) if any(
             _contains_case_insensitive(b.get(k, ""), query)

@@ -2,6 +2,7 @@
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 import re
+import unicodedata
 from urllib.parse import unquote, urlsplit
 
 from flow_reader.server.home import handler_for_home
@@ -18,6 +19,7 @@ def peer_registry(documents, profiles=(), parents=()):
     Only the returned closure sees roots; the wire receives mounted routes.
     """
     def normalized(value):
+        value = unicodedata.normalize("NFC", value)
         return "-".join(filter(None, re.split(r"[\s_-]+", value.strip().lower())))
     configured = {p["id"]: p for p in profiles}
     parent_by_id = {p["id"]: p for p in parents}
@@ -37,7 +39,8 @@ def peer_registry(documents, profiles=(), parents=()):
         normalized_key = normalized(key)
         if not normalized_key:
             return None
-        matches = [p for p in peers if p[1] and p[1] == key]
+        matches = [p for p in peers if p[1] and
+                   unicodedata.normalize("NFC", p[1]) == unicodedata.normalize("NFC", key)]
         if not matches:
             matches = [p for p in peers if not p[1] and normalized_key in p[2]]
         return (matches[0][3], matches[0][4]) if len(matches) == 1 else None
