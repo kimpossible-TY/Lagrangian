@@ -112,6 +112,9 @@ failed() {
   stage "$CUR" failed "exit $code at updater line $line" || true
   echo "$(date) install of run $id FAILED at $CUR (exit $code, line $line)"
   notify "빌드 $id 설치 실패 (로그 확인)"
+  # These statuses belong exclusively to install_run's control paths.
+  # Keep the original command status in the recorded failure above.
+  case "$code" in 74|75|76|77) code=1 ;; esac
   exit "$code"
 }
 # One lsof txt block must list both this file's inode and its path.
@@ -399,7 +402,14 @@ run_interruptible_step() {
   local current="$1" output="$2" child monitor rc=0 marker="$WT/superseded-run"
   shift 2
   rm -f "$marker"
-  "$@" >"$output" &
+  # A dedicated session keeps even reparented descendants in a group that can
+  # be signalled again after the original child exits, including children born
+  # while SIGTERM handlers run.
+  (
+    # Preserve injected shell commands used by isolated integration tests.
+    if declare -F "$1" >/dev/null; then export -f "$1"; export APP; fi
+    exec python3 -c 'import os,sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' bash -c '"$@"' updater-step "$@"
+  ) >"$output" &
   child=$!
   (
     trap - ERR EXIT
@@ -413,26 +423,14 @@ run_interruptible_step() {
       kill -0 "$child" 2>/dev/null || break
       if newer=$(newer_success_run "$current"); then
         printf '%s\n' "$newer" > "$marker"
-        # Snapshot descendants before signalling, deepest first. Keep the IDs
-        # for the KILL pass even if their parents have already exited.
+        # Signal the group again after a grace period: a TERM handler can spawn
+        # another child or outlive its parent during that period.
         python3 - "$child" <<'PYCODE'
-import os,signal,subprocess,sys,time
+import os,signal,sys,time
 root=int(sys.argv[1])
-rows=subprocess.check_output(['ps','-axo','pid=,ppid='],text=True).splitlines()
-children={}
-for row in rows:
-    fields=row.split()
-    if len(fields)==2:
-        pid,parent=map(int,fields); children.setdefault(parent,[]).append(pid)
-def descendants(pid):
-    result=[]
-    for child in children.get(pid,[]): result.extend(descendants(child)); result.append(child)
-    return result
-pids=descendants(root)+[root]
 for sig in (signal.SIGTERM,signal.SIGKILL):
-    for pid in pids:
-        try: os.kill(pid,sig)
-        except ProcessLookupError: pass
+    try: os.killpg(root,sig)
+    except ProcessLookupError: pass
     if sig==signal.SIGTERM: time.sleep(1)
 PYCODE
         break

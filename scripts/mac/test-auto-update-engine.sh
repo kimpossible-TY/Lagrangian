@@ -209,8 +209,13 @@ import os,signal,subprocess,sys,time
 from pathlib import Path
 root=Path(os.environ['FIXTURE']); command=sys.argv[1]
 if command=='fetch-engine':
-    if (root/'fail').exists(): sys.exit(9)
+    if (root/'fail').exists(): sys.exit(int((root/'fail').read_text()))
     child=subprocess.Popen([sys.executable,'-c','import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'])
+    def on_term(*args):
+        late=subprocess.Popen([sys.executable,'-c','import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'])
+        (root/'late-pid').write_text(str(late.pid))
+        sys.exit(0)
+    signal.signal(signal.SIGTERM, on_term)
     (root/'child-pid').write_text(str(os.getpid()))
     (root/'descendant-pid').write_text(str(child.pid))
     while True: time.sleep(1)
@@ -256,7 +261,7 @@ PYCODE
   [[ "$rc" == 77 && "$(cat "$STATE")" == 10 && "$(cat "$APP/sentinel")" == untouched ]]
   [[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["state"])' "$ATTEMPTS/20/state.json")" == superseded ]]
   [[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["state"])' "$STATUS")" == superseded ]]
-  for pidfile in child-pid descendant-pid; do
+  for pidfile in child-pid descendant-pid late-pid; do
     pid=$(cat "$FIXTURE/$pidfile")
     if kill -0 "$pid" 2>/dev/null && [[ "$(ps -o stat= -p "$pid")" != Z* ]]; then
       echo "surviving process $pid" >&2; exit 1
@@ -271,11 +276,25 @@ PYCODE
   [[ "$(cat "$FIXTURE/installed-runs")" == "$(printf '20\n21')" ]]
   # A real step failure invokes failed(), rather than being treated as stale.
   eval "$saved_install_run"
-  touch "$FIXTURE/fail"
+  printf '9\n' > "$FIXTURE/fail"
   printf '22\n' > "$FIXTURE/success"
   rc=0; set +e; install_run 22; rc=$?; set -e
   [[ "$rc" == 9 && "$(cat "$STATE")" == 10 ]]
   [[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["state"])' "$ATTEMPTS/22/state.json")" == failed ]]
+  # Actual command failures cannot masquerade as any reserved control result.
+  for code in 74 75 76 77; do
+    run=$((400 + code)); printf '%s\n' "$code" > "$FIXTURE/fail"
+    printf '%s\n' "$run" > "$FIXTURE/success"
+    rc=0; set +e; (watch_iteration); rc=$?; set -e
+    [[ "$rc" != 0 && "$rc" != 74 && "$rc" != 75 && "$rc" != 76 && "$rc" != 77 ]]
+    python3 - "$ATTEMPTS/$run/state.json" "$STATUS" "$code" <<'PYCODE'
+import json,sys
+attempt,status=map(lambda p: json.load(open(p)),sys.argv[1:3])
+assert attempt['state']=='failed' and attempt['phase']=='download'
+assert 'exit '+sys.argv[3]+' ' in attempt['message']
+assert status['state']=='failed' and status['current']=='download'
+PYCODE
+  done
 )
 printf 'auto-update superseding and failure checks passed\n'
 
