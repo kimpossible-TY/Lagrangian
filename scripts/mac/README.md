@@ -29,6 +29,9 @@ during an approximately one-second grace period, then SIGKILL, and reaps the dir
 Further signals during cleanup preserve the first signal's exit code. Outside
 an installation, during `gh run watch` or the idle sleep, the signal ends the
 updater directly because no installation step is running.
+When signaled outside a supervised step, the body's foreground children (git,
+app install/verify, launchctl) are not forwarded the signal and may survive;
+the body's EXIT trap still cleans up the worktree.
 
 The claim for a run is
 `$HOME/Library/Application Support/Lagrangian/update-attempts/<run>/state.json`.
