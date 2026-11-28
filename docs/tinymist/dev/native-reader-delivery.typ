@@ -756,3 +756,11 @@ The native design parity owner correction registers the following 13 paths from
 `tests/flow-app/native-reader-app/parity_perf_bench.py`,
 `tests/flow-app/native-reader-app/test_native_design_parity.py`.
 Hashes are Git-derived. The two parity benchmark files are new and have null base digests.
+
+The mixed-style link hover owner correction registers the following 3 paths from
+`9d38df676e731eb0c5a7f6e1188ee8c22f64a6e8` →
+`118a4bb1a295477bcaf9c12980cd7811d4bb7a07`:
+`apps/macos/NativeReaderTextView.swift`,
+`tests/flow-app/native-reader-app/NativeDesignParityTests.swift`,
+`tests/flow-app/native-reader-app/test_native_design_parity.py`.
+Hashes are Git-derived.
