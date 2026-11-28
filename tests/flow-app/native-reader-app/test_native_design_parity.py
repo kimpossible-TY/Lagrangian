@@ -51,3 +51,4 @@ class NativeDesignParityTests(unittest.TestCase):
     def test_tall_selection_avoidance(self): self.scenario('tall-selection')
     def test_pending_refresh_local_strike(self): self.scenario('pending-strike')
     def test_keyboard_pdf_selection_and_immutable_ink(self): self.scenario('keyboard-pdf')
+    def test_mixed_link_hover_and_document_replacement(self): self.scenario('mixed-link-hover')

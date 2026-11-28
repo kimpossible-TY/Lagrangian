@@ -778,7 +778,8 @@ final class NativeReaderBodyTextView: NativeReaderInputTextView {
             let index = manager.characterIndex(for: local, in: container, fractionOfDistanceBetweenInsertionPoints: nil)
             var range = NSRange()
             if index < storage.length,
-               let id = storage.attribute(nativeReaderLink, at: index, effectiveRange: &range) as? String {
+               let id = storage.attribute(nativeReaderLink, at: index, longestEffectiveRange: &range,
+                                          in: NSRange(location: 0, length: storage.length)) as? String {
                 let glyph = manager.glyphRange(forCharacterRange: NSRange(location: index, length: 1), actualCharacterRange: nil)
                 if manager.boundingRect(forGlyphRange: glyph, in: container).contains(local) { hovered = id; hoveredRange = range }
             }
