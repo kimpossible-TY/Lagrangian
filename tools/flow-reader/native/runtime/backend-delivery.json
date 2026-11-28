@@ -2886,6 +2886,27 @@
             "sha256": "f6254c83b74a3ef6c7685b3ebec1f5aac190b39cbd2a4caa45547017d1dc2989"
           }
         ]
+      },
+      {
+        "revision": "737702dea0ff3c52a453c398f6cf1df3e810e250",
+        "baseRevision": "868b3ac0a3a0b0a93c7e5eef7a9da726056064d9",
+        "files": [
+          {
+            "path": "scripts/mac/README.md",
+            "baseSHA256": "6a771cedb953ec1609eb085d79d48f7fbb8a80a6a11aacdb3ee1dc50341b0239",
+            "sha256": "22c8cd0cd395ff0a9ff1eb5d98e2a0a35034d1559d9488195809880f04ef6531"
+          },
+          {
+            "path": "scripts/mac/auto-update-engine.sh",
+            "baseSHA256": "c5bb4f77032c1c3f5c1112b82c6be41f8794c31aececc593b0ae9267cf07c910",
+            "sha256": "23280d6afa6bec6855ac6c0070c1b087d53a06ec4850966056c3b7ec518ecc18"
+          },
+          {
+            "path": "scripts/mac/test-auto-update-engine.sh",
+            "baseSHA256": "f226801fce8a394079b0b85420e253a508151754ec464973bb87f7f6226ae686",
+            "sha256": "9cad1a9fa9687e3b8faad2e41cc8e56687fbb4e5a69fb6051e43767579c221f4"
+          }
+        ]
       }
     ]
   }
