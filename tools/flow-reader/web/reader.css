@@ -1018,6 +1018,8 @@ button:disabled {
   max-width: 76ch;
   margin: 2rem auto 6rem;
   padding: 0 clamp(16px, 4vw, 36px);
+  padding-inline-end: calc(clamp(16px, 4vw, 36px) + var(--flow-article-side-inset, 0px));
+  padding-bottom: var(--flow-side-bottom-clearance, 0px);
   font-family: "New Computer Modern", "Times New Roman", Georgia, serif;
   font-size: var(--reader-font-size);
   line-height: 1.65;
@@ -1035,7 +1037,7 @@ button:disabled {
   margin: 0.8em 0;
 }
 .reader-chat {
-  font: var(--type-body)/1.6 var(--font-system);
+  font: var(--type-body) / 1.6 var(--font-system);
   color: var(--color-text);
   background: var(--color-page);
   text-indent: 0;
@@ -1118,7 +1120,8 @@ button:disabled {
   border-color: var(--accent);
   background: var(--color-tint);
 }
-.reader-chat-marker:is([data-state="streaming"], [data-state="failed"], [data-state="interrupted"]) .reader-chat-marker-bubble::before {
+.reader-chat-marker:is([data-state="streaming"], [data-state="failed"], [data-state="interrupted"])
+  .reader-chat-marker-bubble::before {
   content: "";
   position: absolute;
   top: -2px;
@@ -1210,7 +1213,7 @@ button:disabled {
   margin-block-end: 0.55em;
   color: var(--color-text);
   border-radius: var(--radius-small);
-  font: 600 var(--type-small)/1.5 var(--font-system);
+  font: 600 var(--type-small) / 1.5 var(--font-system);
 }
 .reader-chat .reader-chat-context-label,
 .reader-chat .reader-chat-message-label,
@@ -1499,14 +1502,19 @@ button:disabled {
   filter: brightness(0.88);
 }
 @media (forced-colors: active) {
-  .reader-chat-summary { border-color: ButtonText; }
+  .reader-chat-summary {
+    border-color: ButtonText;
+  }
   .reader-chat-marker-bubble {
     background: Canvas;
     border-color: ButtonText;
     box-shadow: none;
   }
-  .reader-chat button:focus-visible, .reader-chat textarea:focus-visible,
-  .reader-chat select:focus-visible { outline-color: Highlight; }
+  .reader-chat button:focus-visible,
+  .reader-chat textarea:focus-visible,
+  .reader-chat select:focus-visible {
+    outline-color: Highlight;
+  }
 }
 @media (hover: hover) {
   .reader-chat button:hover:not(:disabled),
@@ -1538,9 +1546,9 @@ button:disabled {
 #reader-document.reader-paragraph-chat .flow-side-divider {
   display: none;
 }
-#reader-document.reader-paragraph-chat .flow-annotation-side {
-  padding-inline-start: calc(var(--flow-side-width) + 20px);
-  padding-inline-end: 0;
+#reader-document.reader-paragraph-chat {
+  padding-inline-start: calc(clamp(16px, 4vw, 36px) + var(--flow-article-side-inset, 0px));
+  padding-inline-end: clamp(16px, 4vw, 36px);
 }
 #reader-document .flow-paragraph-tab {
   display: inline-block;
@@ -1643,10 +1651,13 @@ button:disabled {
   display: inline-block;
   max-width: 100%;
   vertical-align: middle;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: visible;
   padding-block: 0.12em;
   overscroll-behavior-inline: contain;
+}
+.flow-inline-equation[data-math-overflow="true"] {
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 .flow-inline-equation > math {
   width: max-content;
@@ -1892,16 +1903,6 @@ math svg {
   margin: 0.5em 0;
 }
 .flow-annotation-space {
-  padding-block-start: var(--flow-annotation-padding, 2.2em);
-}
-.flow-annotation-side {
-  padding-inline-end: calc(var(--flow-side-width) + 20px);
-  min-block-size: var(--flow-side-height);
-}
-.flow-annotation-side {
-  padding-block-start: max(8px, 0.6em);
-}
-.flow-annotation-side.flow-annotation-space {
   padding-block-start: var(--flow-annotation-padding, 2.2em);
 }
 .flow-note[data-note-mode="label"],
@@ -2412,23 +2413,59 @@ math svg {
   transform: translateX(var(--logo-swipe-x, 0px));
   transition: transform 280ms cubic-bezier(0.2, 1.4, 0.4, 1);
 }
-@property --logo-hold-progress { syntax: "<percentage>"; inherits: false; initial-value: 0%; }
+@property --logo-hold-progress {
+  syntax: "<percentage>";
+  inherits: false;
+  initial-value: 0%;
+}
 .reader-brand::after {
-  content: ""; position: absolute; width: 46px; height: 46px; border-radius: 50%;
-  pointer-events: none; opacity: 0;
+  content: "";
+  position: absolute;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  pointer-events: none;
+  opacity: 0;
   background: conic-gradient(var(--color-action) var(--logo-hold-progress), transparent 0);
   mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1px));
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1px));
 }
-.reader-brand.reader-logo-pressing { transform: scale(.95); }
-.reader-brand.reader-logo-pressing::after { opacity: 1; animation: logo-hold 500ms linear forwards; }
-.reader-brand.reader-logo-confirmed { animation: logo-confirm 100ms ease-out; }
-@keyframes logo-hold { to { --logo-hold-progress: 100%; } }
-@keyframes logo-confirm { to { transform: scale(1.04); opacity: .75; } }
-.reader-brand.reader-logo-dragging { transition: none; }
+.reader-brand.reader-logo-pressing {
+  transform: scale(0.95);
+}
+.reader-brand.reader-logo-pressing::after {
+  opacity: 1;
+  animation: logo-hold 500ms linear forwards;
+}
+.reader-brand.reader-logo-confirmed {
+  animation: logo-confirm 100ms ease-out;
+}
+@keyframes logo-hold {
+  to {
+    --logo-hold-progress: 100%;
+  }
+}
+@keyframes logo-confirm {
+  to {
+    transform: scale(1.04);
+    opacity: 0.75;
+  }
+}
+.reader-brand.reader-logo-dragging {
+  transition: none;
+}
 @media (prefers-reduced-motion: reduce) {
-  .reader-brand, .reader-brand.reader-logo-pressing, .reader-brand.reader-logo-confirmed { transform: none; transition: none; animation: none; }
-  .reader-brand.reader-logo-pressing::after { animation: none; --logo-hold-progress: 100%; }
+  .reader-brand,
+  .reader-brand.reader-logo-pressing,
+  .reader-brand.reader-logo-confirmed {
+    transform: none;
+    transition: none;
+    animation: none;
+  }
+  .reader-brand.reader-logo-pressing::after {
+    animation: none;
+    --logo-hold-progress: 100%;
+  }
 }
 .reader-logo-home-link:not([hidden]) {
   display: block;
@@ -2436,7 +2473,10 @@ math svg {
   color: var(--color-action);
   border-radius: var(--radius-small);
 }
-.reader-logo-home-link:focus-visible { outline: 2px solid var(--color-action); outline-offset: 2px; }
+.reader-logo-home-link:focus-visible {
+  outline: 2px solid var(--color-action);
+  outline-offset: 2px;
+}
 .reader-brand::-webkit-details-marker {
   display: none;
 }
@@ -2723,7 +2763,7 @@ math svg {
   border: 1px solid var(--line);
   border-radius: var(--radius-medium);
   box-shadow: var(--shadow-card);
-  font: var(--type-body)/1.6 var(--font-system);
+  font: var(--type-body) / 1.6 var(--font-system);
 }
 .reader-cross-project-preview p {
   white-space: pre-wrap;

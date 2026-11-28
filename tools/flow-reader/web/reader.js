@@ -27,7 +27,10 @@ import {
 import { ReaderChangeNavigation } from "./features/navigation/change-navigation.js";
 import { ReferenceReturn } from "./reader-common/navigation/reference-return.js";
 import { CrossProjectReturnStack } from "./reader-common/navigation/cross-project-return.js";
-import { CrossProjectPreview, createCrossProjectPosition } from "./features/navigation/cross-project-preview.js";
+import {
+  CrossProjectPreview,
+  createCrossProjectPosition,
+} from "./features/navigation/cross-project-preview.js";
 import { OutlineDrawer, ReaderGestures } from "./features/navigation/reading-navigation.js";
 import { createToolbarVisibility } from "./features/navigation/toolbar-visibility.js";
 
@@ -132,14 +135,17 @@ const readingPosition = createReadingPosition(article, {
 const readingAnchor = () => readingPosition.capture();
 const restoreAnchor = (anchor) => readingPosition.restore(anchor);
 const crossProjects = new CrossProjectPreview(article, {
-  stack: new CrossProjectReturnStack({ storage: {
-    getItem: (key) => sessionStorage.getItem(key),
-    setItem: (key, value) => sessionStorage.setItem(key, value),
-    removeItem: (key) => sessionStorage.removeItem(key),
-  } }),
+  stack: new CrossProjectReturnStack({
+    storage: {
+      getItem: (key) => sessionStorage.getItem(key),
+      setItem: (key, value) => sessionStorage.setItem(key, value),
+      removeItem: (key) => sessionStorage.removeItem(key),
+    },
+  }),
   returnButton: document.querySelector("#reader-cross-project-return"),
   enabled: () => serverState?.viewer?.crossProject === true,
-  identity: () => JSON.stringify([serverState?.documentID, serverState?.service, serverState?.revision]),
+  identity: () =>
+    JSON.stringify([serverState?.documentID, serverState?.service, serverState?.revision]),
   request: (url, options) => transport.get(url, options),
   ...createCrossProjectPosition(article, {
     ready: () => manifest && sameSession(manifest, serverState),
@@ -154,8 +160,12 @@ let crossProjectRestoreFrame = null;
 function retryCrossProjectReturn() {
   const attempt = crossProjectRestoration;
   if (!attempt) return;
-  if (disposed || attempt.sequence !== loadSequence || !sameSession(attempt.snapshot, serverState) ||
-    crossProjects.pendingReturn()?.transitionId !== attempt.record.transitionId) {
+  if (
+    disposed ||
+    attempt.sequence !== loadSequence ||
+    !sameSession(attempt.snapshot, serverState) ||
+    crossProjects.pendingReturn()?.transitionId !== attempt.record.transitionId
+  ) {
     crossProjectRestoration = null;
     return;
   }
@@ -465,6 +475,7 @@ function prepareSection(html, section) {
     document
       .querySelector("#reader-document-styles")
       .replaceChildren(...parsed.head.querySelectorAll("style"));
+    // prettier-ignore
     document.title = parsed.title ? `${parsed.title} · Lagrangian Web Viewer` : "Lagrangian Web Viewer";
     shellRevision = shellIdentity;
   }
@@ -537,7 +548,11 @@ function renderDocument(html, nextManifest, section, options) {
   requestAnimationFrame(() => {
     if (disposed || !sameSnapshot(manifest, nextManifest) || sequence !== loadSequence) return;
     if (options.crossProjectReturn) {
-      crossProjectRestoration = { record: options.crossProjectReturn, snapshot: nextManifest, sequence };
+      crossProjectRestoration = {
+        record: options.crossProjectReturn,
+        snapshot: nextManifest,
+        sequence,
+      };
       retryCrossProjectReturn();
     } else if (options.target) {
       const target = document.getElementById(options.target);
@@ -654,7 +669,11 @@ async function loadSection(nextManifest, section, options = {}) {
       activity.state.cancel(sequence);
       return;
     }
-    if (options.update && !options.crossProjectReturn && manifest?.documentID === nextManifest.documentID) {
+    if (
+      options.update &&
+      !options.crossProjectReturn &&
+      manifest?.documentID === nextManifest.documentID
+    ) {
       options.anchor = readingAnchor();
       const destination = sectionFor(nextManifest, options.anchor, options.target);
       if (destination !== section) return loadSection(nextManifest, destination, options);
@@ -768,6 +787,7 @@ outline.addEventListener("click", async (event) => {
 function scheduleFontLayout() {
   if (disposed) return;
   mathematics.schedule();
+  annotations.schedule();
   canvases.schedule();
   decorations.schedule();
   graphics.schedule();
@@ -958,15 +978,27 @@ async function refresh(signal, current) {
     const sectionHint =
       !revision && !resuming && new URL(location.href).searchParams.get("section");
     const explicit =
-      !revision && (Boolean(crossProjectReturn) || Boolean(target) || Boolean(sectionHint) || navigationType === "back_forward");
+      !revision &&
+      (Boolean(crossProjectReturn) ||
+        Boolean(target) ||
+        Boolean(sectionHint) ||
+        navigationType === "back_forward");
     if (!revision) awaitingEntryChange = explicit && !pending.lastChange;
     changes.queue(pending, explicit);
     const returnSection = crossProjectReturn?.entry.sectionId;
-    const section = returnSection && pending.sections.some((item) => item.id === returnSection)
-      ? returnSection : sectionHint && pending.sections.some((item) => item.id === sectionHint)
-        ? (pending.anchors[target] ?? sectionHint)
-        : sectionFor(pending, anchor, target);
-    await loadSection(pending, section, { anchor, target, crossProjectReturn, update: true, signal });
+    const section =
+      returnSection && pending.sections.some((item) => item.id === returnSection)
+        ? returnSection
+        : sectionHint && pending.sections.some((item) => item.id === sectionHint)
+          ? (pending.anchors[target] ?? sectionHint)
+          : sectionFor(pending, anchor, target);
+    await loadSection(pending, section, {
+      anchor,
+      target,
+      crossProjectReturn,
+      update: true,
+      signal,
+    });
   }
   if (manifest && !state.offline) void offline.save(manifest);
   selectionActions?.connectionChanged(!state.offline);

@@ -2806,13 +2806,73 @@
         ]
       },
       {
-        "revision": "d2401ca99d9f8ddf3982259037b74aa2de5916d7",
+        "revision": "e20d008c4121cfc2d17579d0cc021004c629124a",
         "baseRevision": "18935acb3c5cefd80ec29496799b6ba89ded3492",
         "files": [
           {
-            "path": "tests/flow-app/test_app.py",
-            "baseSHA256": "0a020fdbeb297d5a6a080f0adfefe515583c9ac97e9f22891d1560fe6f892129",
-            "sha256": "f6254c83b74a3ef6c7685b3ebec1f5aac190b39cbd2a4caa45547017d1dc2989"
+            "path": "tools/flow-reader/tests/annotations-browser.mjs",
+            "baseSHA256": "4c7cb9be13d5d19c1a36dcff81437b4fcfb16fb754854694643d77d72b1c854a",
+            "sha256": "4f44370ce4a54269be4b1156eca0511f4f4ab8668750eeca33fa6362c9b2d183"
+          },
+          {
+            "path": "tools/flow-reader/tests/footnotes-browser.mjs",
+            "baseSHA256": "b49a5c4154c96a3ca4cb0e87e12434aad4d19fe0e87c14162c33d1ac1286a294",
+            "sha256": "cac0d7ce0ec4920e33f3d804e8e3b900866b8b652f7173d5ed31b0930d6a61ac"
+          },
+          {
+            "path": "tools/flow-reader/tests/inline-browser.js",
+            "baseSHA256": "b03042376f3467475be606b43d9e9ad0a874a74f041bf412d8d71057b1cfe209",
+            "sha256": "3b58cb009c6a65c6cfc2836a71bbfcc90a7eb1aadd725196aeef76eff7343f55"
+          },
+          {
+            "path": "tools/flow-reader/tests/live-pinch-browser.mjs",
+            "baseSHA256": "1b8a56a9237fef3f08dade42126d0d550068a933f7c0df1d67ca698978125276",
+            "sha256": "8101855f7ed06dcdd74fc1a48c4cbf28e1a59807ecda949baa20de3b536db125"
+          },
+          {
+            "path": "tools/flow-reader/tests/test_annotations.mjs",
+            "baseSHA256": "d177a26311c92d5256eec9fdba7ab60d18a268b4838f3067c2323eb2f046963b",
+            "sha256": "af6d40da578658a7b40a8ba2143ed92ed723d13b6048104139acf954d27f4378"
+          },
+          {
+            "path": "tools/flow-reader/tests/test_math_layout.mjs",
+            "baseSHA256": "5752447e7e54cc18a5a80afa09dff81e0d1c626acad6d1085486cf03fe68824b",
+            "sha256": "5411baa945052179e4d369828705e312c812ab54b974a0f395243a5297b04cde"
+          },
+          {
+            "path": "tools/flow-reader/tests/test_reading_navigation.mjs",
+            "baseSHA256": "6ecdf18f6d5602c3fb13643b6b85cc33fadcf43b4c42d9d9f014f7d2fc390442",
+            "sha256": "768bdf228dca12330bd245566ad6f9de9c1cb9799cdb61231a95ee5098b70b95"
+          },
+          {
+            "path": "tools/flow-reader/web/features/appearance/font-size.js",
+            "baseSHA256": "1b2427b3700877202817238ff836f328dfb5d218e833ac9010d32a8b893f7165",
+            "sha256": "afc2f5fe0dfa9ffa4fbd90f8f8908a50ab344cc2c1898a8abb64c7c9310fee9c"
+          },
+          {
+            "path": "tools/flow-reader/web/features/navigation/reading-navigation.js",
+            "baseSHA256": "ea17a654143307b4309fc268ad5eec29ff50fc61085f716bbf72982432d13584",
+            "sha256": "ae32de9a72f5598254c01b97cf459944dc29ad2b01304cb7c758f22891d214ab"
+          },
+          {
+            "path": "tools/flow-reader/web/reader.css",
+            "baseSHA256": "1e1720f7d0a13c6c038fc31efb73c12b5d637e55dc2c0992550efefdbac1a146",
+            "sha256": "6b17f460760603db5f7939983a4143fca05d202b721fd4fdaae9940a48af0797"
+          },
+          {
+            "path": "tools/flow-reader/web/reader.js",
+            "baseSHA256": "ffead9e02b6b4c4ec4792cd85fbc18c3f6e1179afaa2bb1505424923d01dc523",
+            "sha256": "19850984278b424cef87a262f5d59f61cebedb26699a99e33723fae319717038"
+          },
+          {
+            "path": "tools/flow-reader/web/rendering/annotations.js",
+            "baseSHA256": "73c5853234c0a2ef7c5092ce8a88383ee47f0d16338c00b2300688d2bcc1b92f",
+            "sha256": "cc510a9c6f5e8b32e69b5b9215626eac6cf246aa5c7ed191f540f0bb081f5acb"
+          },
+          {
+            "path": "tools/flow-reader/web/rendering/math/renderer.js",
+            "baseSHA256": "9439ffbd84c92e124c87b98191c8502acad6fa99adb89e73c254739324bd2b33",
+            "sha256": "9ffbdd75c27f0d2edcddc4d10ac8f06f4e2285a1e5147204b7d083433c8c0beb"
           }
         ]
       }

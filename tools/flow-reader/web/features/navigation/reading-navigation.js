@@ -1,3 +1,5 @@
+import { clampFontSize } from "../appearance/font-size.js";
+
 // Reading gestures own horizontal drawer movement and two-finger text sizing.
 // One-finger vertical scrolling stays with the browser.
 const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
@@ -5,7 +7,7 @@ const clamp = (value, low, high) => Math.max(low, Math.min(high, value));
 export function pinchFont(size, distance, initial) {
   if (!(initial >= 24) || !Number.isFinite(distance)) return size;
   const ratio = distance / initial;
-  return Math.abs(ratio - 1) < 0.04 ? size : clamp(Math.round(size * ratio), 13, 30);
+  return clampFontSize(Math.abs(ratio - 1) < 0.04 ? size : Math.round(size * ratio));
 }
 
 export function springState(from, to, velocity, seconds) {
@@ -299,14 +301,9 @@ export class ReaderGestures {
       });
     }
     for (const name of ["gesturestart", "gesturechange", "gestureend"]) {
-      article.addEventListener(
-        name,
-        (event) => {
-          if (event.cancelable) event.preventDefault();
-        },
-        { passive: false, signal },
-      );
+      window.addEventListener(name, (event) => this.gesture(event), { passive: false, signal });
     }
+    window.addEventListener("wheel", (event) => this.wheel(event), { passive: false, signal });
     window.addEventListener("blur", () => this.cancel(), { signal });
     window.addEventListener("pagehide", () => this.cancel(), { signal });
     document.addEventListener(
@@ -329,7 +326,78 @@ export class ReaderGestures {
   }
 
   get active() {
-    return this.state?.kind === "pinch" || Boolean(this.state?.owned);
+    return ["pinch", "gesture", "wheel"].includes(this.state?.kind) || Boolean(this.state?.owned);
+  }
+
+  wheel(event) {
+    if (event.ctrlKey !== true) return;
+    event.preventDefault();
+    if (!Number.isFinite(event.deltaY)) return;
+    if (this.selected() || this.overlayOpen()) {
+      this.cancel();
+      return;
+    }
+    if (this.state?.kind !== "wheel") {
+      this.cancel();
+      this.state = { kind: "wheel", candidate: this.getFont(), delta: 0 };
+    }
+    const state = this.state;
+    // A keyboard shortcut or a settings control may have committed a new size
+    // while the wheel debounce was pending. Continue from that current size.
+    if (state.candidate !== this.getFont()) {
+      state.candidate = this.getFont();
+      state.delta = 0;
+    }
+    state.delta += event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? 100 : 1);
+    const steps = Math.trunc(state.delta / 40);
+    state.delta -= steps * 40;
+    if (steps) {
+      state.candidate = clampFontSize(state.candidate - steps);
+      this.previewFont?.(state.candidate);
+    }
+    clearTimeout(this.wheelCommit);
+    this.wheelCommit = setTimeout(() => {
+      this.wheelCommit = undefined;
+      if (this.state !== state) return;
+      this.state = null;
+      if (this.getFont() === state.candidate) this.setFont(state.candidate);
+    }, 180);
+  }
+
+  gesture(event) {
+    if (event.cancelable) event.preventDefault();
+    // iOS also emits these during touch pinches; touch distances already own
+    // that preview. Desktop Safari supplies scale without touch contacts.
+    if (this.state?.kind === "pinch") return;
+    if (typeof event.scale !== "number" || !Number.isFinite(event.scale) || event.scale <= 0)
+      return;
+    if (this.selected() || this.overlayOpen()) {
+      this.cancel();
+      return;
+    }
+    if (event.type === "gesturestart") {
+      this.cancel();
+      this.state = {
+        kind: "gesture",
+        size: this.getFont(),
+        candidate: this.getFont(),
+        expected: this.getFont(),
+      };
+    }
+    const state = this.state;
+    if (state?.kind !== "gesture") return;
+    if (this.getFont() !== state.expected) {
+      this.state = null;
+      return;
+    }
+    state.candidate = pinchFont(state.size, event.scale * 100, 100);
+    if (event.type === "gestureend") {
+      this.state = null;
+      this.setFont(state.candidate);
+    } else {
+      this.previewFont?.(state.candidate);
+      state.expected = this.getFont();
+    }
   }
 
   selected() {
@@ -348,6 +416,7 @@ export class ReaderGestures {
       this.waiting = true;
       return;
     }
+    if (["wheel", "gesture"].includes(this.state?.kind)) this.cancel();
     const onArticle = this.article.contains(event.target);
     if (touches.length === 2) {
       if (
@@ -499,13 +568,14 @@ export class ReaderGestures {
   cancel() {
     if (this.state?.owned) this.drawer.settle(this.state.tracker.open, 0);
     const pinching = this.state?.kind === "pinch";
+    const previewing = ["pinch", "gesture", "wheel"].includes(this.state?.kind);
+    clearTimeout(this.wheelCommit);
+    this.wheelCommit = undefined;
     this.state = null;
     this.cancelPinchFrame();
     this.preview.hidden = true;
-    if (pinching) {
-      this.waiting = true;
-      this.cancelFont?.();
-    }
+    if (pinching) this.waiting = true;
+    if (previewing) this.cancelFont?.();
   }
 
   cancelPinchFrame() {
