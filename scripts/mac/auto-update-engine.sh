@@ -396,109 +396,121 @@ check_superseded() {
   local newer
   if newer=$(newer_success_run "$1"); then supersede_run "$newer"; fi
 }
-# Capture descendants by parent PID as well as process group: a child may start
-# a separate session. Keep discovered PIDs after their parent exits.
-terminate_step_tree() {
-  python3 - "$1" "${2:-tree}" "${3:-}" <<'PYCODE'
-import os, signal, subprocess, sys, time
-root = int(sys.argv[1])
-known = {root}
-excluded = {os.getpid()}
-def discover():
-    lines = subprocess.check_output(['ps', '-A', '-o', 'pid=', '-o', 'ppid='], text=True).splitlines()
-    pairs = [tuple(map(int, line.split())) for line in lines if len(line.split()) == 2]
-    parents = dict(pairs)
-    ancestor = os.getpid()
-    while ancestor in parents and parents[ancestor] not in excluded and parents[ancestor] > 1:
-        ancestor = parents[ancestor]
-        excluded.add(ancestor)
-    if sys.argv[3]:
-        result = subprocess.run(['lsof', '-t', sys.argv[3]], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
-        known.update(int(pid) for pid in result.stdout.split() if pid.isdigit() and int(pid) not in excluded)
-    changed = True
-    while changed:
-        added = {pid for pid, ppid in pairs if ppid in known} - known
-        changed = bool(added)
-        known.update(added)
-def send(sig):
-    for pid in sorted(known - excluded, reverse=True):
-        try: os.kill(pid, sig)
-        except (ProcessLookupError, PermissionError): pass
-    if sys.argv[2] == "session":
-        try: os.killpg(root, sig)
-        except (ProcessLookupError, PermissionError): pass
-discover()
-send(signal.SIGTERM)
-end = time.monotonic() + 1
-while time.monotonic() < end:
-    discover()
-    send(signal.SIGTERM)
-    time.sleep(0.05)
-discover()
-send(signal.SIGKILL)
-PYCODE
-}
-# The monitor owns only the child tree. The parent waits for both processes
-# before inspecting its result, so no monitor can outlive this step.
+# The supervisor is the step's direct parent and owns the entire cancellation.
 run_interruptible_step() {
-  local current="$1" output="$2" child monitor rc=0 marker="$WT/superseded-run" step_token
+  local current="$1" output="$2" rc=0 marker="$WT/superseded-run" shell_function=0
   shift 2
   rm -f "$marker"
-  step_token=$(mktemp "$WT/step-token.XXXXXX")
-  # A dedicated session keeps even reparented descendants in a group that can
-  # be signalled again after the original child exits, including children born
-  # while SIGTERM handlers run.
-  (
-    exec 9<"$step_token"
-    # Preserve injected shell commands used by isolated integration tests.
-    if declare -F "$1" >/dev/null; then export -f "$1"; export APP; fi
-    exec python3 -c 'import os,sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' bash -c '"$@"' updater-step "$@"
-  ) >"$output" &
-  child=$!
-  (
-    trap - ERR EXIT
-    timer= query=
-    trap '[[ -z "$timer" ]] || kill "$timer" 2>/dev/null; if [[ -n "$query" ]]; then terminate_step_tree "$query"; wait "$query" 2>/dev/null || true; fi; exit 0' TERM
-    while kill -0 "$child" 2>/dev/null; do
-      sleep "${LAGRANGIAN_SUPERSEDE_POLL_SECONDS:-30}" &
-      timer=$!
-      wait "$timer" || exit 0
-      timer=
-      kill -0 "$child" 2>/dev/null || break
-      # wait on an asynchronous lookup so TERM can interrupt a stuck gh call.
-      newer_success_run "$current" > "$marker.query" &
-      query=$!
-      query_rc=0
-      wait "$query" || query_rc=$?
-      query=
-      if [[ "$query_rc" == 0 ]]; then
-        # Once TERM is delivered, finish publishing the decision and cleanup
-        # even if the parent observes the child exit in the meantime.
-        trap '' TERM
-        stat=$(ps -o stat= -p "$child" 2>/dev/null || true)
-        if [[ -n "$stat" && "$stat" != *Z* ]] && kill -TERM "$child" 2>/dev/null; then
-          mv "$marker.query" "$marker"
-          terminate_step_tree "$child" session "$step_token"
-        fi
-        break
-      fi
-    done
-  ) &
-  monitor=$!
-  wait "$child" || rc=$?
-  # A monitor that has detected a newer run must finish terminating the tree.
-  if [[ -s "$marker" ]]; then
-    wait "$monitor" || true
-  else
-    kill "$monitor" 2>/dev/null || true
-    wait "$monitor" 2>/dev/null || true
-  fi
-  rm -f "$step_token" "$marker.query"
-  if [[ -s "$marker" ]]; then
+  if declare -F "$1" >/dev/null; then shell_function=1; export -f "$1"; export APP; fi
+  if declare -F gh >/dev/null; then export -f gh; fi
+  python3 - "$current" "$output" "$marker" "$REPO" "$shell_function" "$@" <<'PYCODE' || rc=$?
+import os, signal, subprocess, sys, tempfile, time
+from pathlib import Path
+
+current, output, marker, repo, shell_function = sys.argv[1:6]
+command = sys.argv[6:]
+if shell_function == '1': command = ['bash', '-c', '"$@"', 'updater-step', *command]
+interval = float(os.environ.get('LAGRANGIAN_SUPERSEDE_POLL_SECONDS', '30'))
+with open(output, 'w') as out:
+    proc = subprocess.Popen(command, start_new_session=True, stdout=out)
+
+def result():
+    code = proc.returncode
+    return code if code >= 0 else 128 - code
+
+def signal_group(pid, sig):
+    try: os.killpg(pid, sig)
+    except ProcessLookupError: pass
+
+def stop_query(query):
+    signal_group(query.pid, signal.SIGKILL)
+    query.wait(timeout=2)
+
+def query_newer():
+    with tempfile.TemporaryFile(mode='w+') as out:
+        query = subprocess.Popen(['bash', '-c', '"$@"', 'updater-query', 'gh',
+                                  'run', 'list', '-R', repo, '-w', 'flow-engine.yml',
+                                  '-b', 'main', '-s', 'success', '-L', '1', '--json',
+                                  'databaseId', '-q', '.[] | .databaseId'],
+                                 stdout=out, stderr=subprocess.DEVNULL, start_new_session=True)
+        deadline = time.monotonic() + 15
+        while query.poll() is None:
+            if proc.poll() is not None or time.monotonic() >= deadline:
+                stop_query(query)
+                return None
+            time.sleep(0.1)
+        if query.returncode != 0: return None
+        out.seek(0)
+        value = out.read().strip()
+        return value if value.isascii() and value.isdigit() and int(value) > int(current) else None
+
+known = {proc.pid}
+def discover():
+    lines = subprocess.check_output(['ps', '-A', '-o', 'pid=,ppid=,pgid='], text=True, timeout=2).splitlines()
+    pairs = [tuple(map(int, line.split())) for line in lines if len(line.split()) == 3]
+    changed = True
+    while changed:
+        added = {pid for pid, ppid, pgid in pairs if ppid in known or pgid == proc.pid} - known
+        changed = bool(added)
+        known.update(added)
+
+def send(sig):
+    proc.poll()
+    signal_group(proc.pid, sig)
+    for pid in known:
+        try: os.kill(pid, sig)
+        except ProcessLookupError: pass
+
+def gone():
+    proc.poll()  # reap the direct child before checking its process group
+    for pid in known:
+        try: os.kill(pid, 0)
+        except ProcessLookupError: continue
+        return False
+    try: os.killpg(proc.pid, 0)
+    except ProcessLookupError: return True
+    return False
+
+while True:
+    deadline = time.monotonic() + max(0, interval)
+    while time.monotonic() < deadline:
+        if proc.poll() is not None: sys.exit(result())
+        time.sleep(min(0.1, max(0, deadline - time.monotonic())))
+    if proc.poll() is not None: sys.exit(result())
+    newer = query_newer()
+    if proc.poll() is not None: sys.exit(result())
+    if newer is None: continue
+    Path(marker).write_text(newer + '\n')
+    try:
+        discover()
+        if proc.poll() is not None:
+            Path(marker).unlink()
+            sys.exit(result())
+        send(signal.SIGTERM)
+        deadline = time.monotonic() + 1
+        while time.monotonic() < deadline:
+            discover()
+            send(signal.SIGTERM)
+            time.sleep(0.05)
+        discover()
+        send(signal.SIGKILL)
+        proc.wait(timeout=2)
+        deadline = time.monotonic() + 2
+        while not gone():
+            if time.monotonic() >= deadline: raise TimeoutError('step processes did not exit')
+            time.sleep(0.05)
+    except (OSError, subprocess.SubprocessError, TimeoutError) as exc:
+        print('supervisor cleanup failed:', exc, file=sys.stderr)
+        Path(marker).unlink(missing_ok=True)
+        sys.exit(1)
+    sys.exit(77)
+PYCODE
+  if [[ "$rc" == 77 && -s "$marker" ]]; then
     supersede_run "$(cat "$marker")"
   fi
   return "$rc"
 }
+
 install_run() (
 # The parent clears errexit only while it captures this status. Turn it back
 # on so a failed command still runs the ERR trap instead of continuing.

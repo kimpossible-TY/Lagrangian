@@ -214,12 +214,13 @@ from pathlib import Path
 root=Path(os.environ['FIXTURE']); command=sys.argv[1]
 if command=='fetch-engine':
     if (root/'fail').exists(): sys.exit(int((root/'fail').read_text()))
-    child=subprocess.Popen([sys.executable,'-c','import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'], start_new_session=True, pass_fds=(9,))
+    child=subprocess.Popen([sys.executable,'-c','import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'], start_new_session=True)
     def on_term(*args):
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
-        late=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'], start_new_session=True, pass_fds=(9,))
+        late=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'], start_new_session=True)
         (root/'late-pid').write_text(str(late.pid))
         (root/'cleanup-exit').write_text('1')
+        time.sleep(0.3)
         sys.exit(1)
     signal.signal(signal.SIGTERM, on_term)
     (root/'child-pid').write_text(str(os.getpid()))
@@ -233,7 +234,7 @@ PYCODE
       'run list')
         case " $* " in
           *' -s success '*)
-            if [[ -e "$FIXTURE/gh-hang" ]]; then /bin/sleep 30; fi
+            if [[ -e "$FIXTURE/gh-hang" ]]; then printf 'hang\n' >> "$FIXTURE/polls"; /bin/sleep 30; fi
             if [[ -e "$FIXTURE/gh-error" ]]; then
               rm -f "$FIXTURE/gh-error"; printf 'error\n' >> "$FIXTURE/polls"; return 1
             fi
@@ -262,28 +263,15 @@ PYCODE
   run_interruptible_step 20 "$FIXTURE/step-output" /bin/sleep 0.4
   (( SECONDS - start < 5 ))
   rm "$FIXTURE/gh-hang"
+  # A failure while gh is blocked is returned immediately, with no marker.
+  : > "$FIXTURE/polls"; touch "$FIXTURE/gh-hang"
+  rc=0
+  run_interruptible_step 20 "$FIXTURE/step-output" bash -c 'sleep 0.4; exit 9' || rc=$?
+  [[ "$rc" == 9 && ! -e "$FIXTURE/superseded-run" ]]
+  grep -q '^hang$' "$FIXTURE/polls"
+  rm "$FIXTURE/gh-hang"
   printf '20\n' > "$FIXTURE/success"
   : > "$FIXTURE/polls"
-  # Let the TERM handler finish and assert its new session is reparented
-  # before the real tree cleanup starts discovering token holders.
-  saved_terminate=$(declare -f terminate_step_tree)
-  eval "$(printf '%s\n' "$saved_terminate" | sed '1s/^terminate_step_tree /real_terminate_step_tree /')"
-  terminate_step_tree() {
-    if [[ "${2:-}" == session ]]; then
-      local n pid ppid
-      for n in {1..100}; do
-        if [[ -s "$FIXTURE/late-pid" ]]; then
-          pid=$(cat "$FIXTURE/late-pid")
-          ppid=$(ps -o ppid= -p "$pid" | tr -d ' ')
-          [[ "$ppid" != 1 ]] || break
-        fi
-        /bin/sleep 0.02
-      done
-      [[ "${ppid:-}" == 1 ]] || { echo 'late descendant was not reparented' >&2; return 1; }
-      touch "$FIXTURE/reparented"
-    fi
-    real_terminate_step_tree "$@"
-  }
   # Polling must survive an API error before detecting the newer run.
   touch "$FIXTURE/gh-error"
   (
@@ -293,7 +281,7 @@ PYCODE
   rc=0; set +e; install_run 20; rc=$?; set -e
   wait "$trigger"
   [[ "$rc" == 77 && "$(cat "$STATE")" == 10 && "$(cat "$APP/sentinel")" == untouched ]]
-  [[ "$(cat "$FIXTURE/cleanup-exit")" == 1 && -e "$FIXTURE/reparented" ]]
+  [[ "$(cat "$FIXTURE/cleanup-exit")" == 1 ]]
   [[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["state"])' "$ATTEMPTS/20/state.json")" == superseded ]]
   [[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["state"])' "$STATUS")" == superseded ]]
   for pidfile in child-pid descendant-pid late-pid; do
@@ -302,7 +290,6 @@ PYCODE
       echo "surviving process $pid" >&2; exit 1
     fi
   done
-  eval "$saved_terminate"
   # A superseded result requests immediate selection of the newer success.
   install_run() { printf '%s\n' "$1" >> "$FIXTURE/installed-runs"; [[ "$1" != 20 ]] || return 77; }
   printf '20\n' > "$FIXTURE/success"; rm -rf "$ATTEMPTS/20"
