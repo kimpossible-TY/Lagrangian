@@ -483,9 +483,11 @@ while True:
     newer = query_newer()
     if proc.poll() is not None: sys.exit(result())
     if newer is None: continue
-    Path(marker).write_text(newer + '\n')
     try:
         discover()
+        completed = proc.poll()
+        if completed is None:
+            Path(marker).write_text(newer + '\n')
         send(signal.SIGTERM)
         deadline = time.monotonic() + 1
         while time.monotonic() < deadline:
@@ -506,7 +508,7 @@ while True:
         except subprocess.TimeoutExpired: pass
         Path(marker).unlink(missing_ok=True)
         sys.exit(1)
-    sys.exit(77)
+    sys.exit(77 if completed is None else result())
 PYCODE
   if [[ "$rc" == 77 && -s "$marker" ]]; then
     supersede_run "$(cat "$marker")"

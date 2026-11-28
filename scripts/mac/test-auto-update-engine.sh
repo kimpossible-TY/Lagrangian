@@ -238,6 +238,12 @@ import os,signal,subprocess,sys,time
 from pathlib import Path
 root=Path(os.environ['FIXTURE']); command=sys.argv[1]
 if command=='fetch-engine':
+    if (root/'discover-race').exists():
+        child=subprocess.Popen(['/bin/sleep','60'])
+        (root/'race-child').write_text(str(child.pid))
+        (root/'race-parent').write_text(str(os.getpid()))
+        while not (root/'race-release').exists(): time.sleep(0.01)
+        sys.exit(9)
     if (root/'fail').exists(): sys.exit(int((root/'fail').read_text()))
     child=subprocess.Popen([sys.executable,'-c','import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'], start_new_session=True)
     def on_term(*args):
@@ -259,6 +265,9 @@ PYCODE
       'run list')
         case " $* " in
           *' -s success '*)
+            if [[ -e "$FIXTURE/discover-race" ]]; then
+              while [[ ! -s "$FIXTURE/race-parent" ]]; do /bin/sleep 0.01; done
+            fi
             if [[ -e "$FIXTURE/gh-hang" ]]; then printf 'hang\n' >> "$FIXTURE/polls"; /bin/sleep 30; fi
             if [[ -e "$FIXTURE/gh-error" ]]; then
               rm -f "$FIXTURE/gh-error"; printf 'error\n' >> "$FIXTURE/polls"; return 1
@@ -272,7 +281,9 @@ PYCODE
   git() {
     case " $* " in
       *' worktree add '*) mkdir -p "$WT/scripts"; cp "$FIXTURE/flow-app.py" "$WT/scripts/flow-app.py" ;;
-      *' worktree remove '*) rm -rf "$WT" ;;
+      *' worktree remove '*)
+        if [[ -e "$FIXTURE/discover-race" && -e "$WT/superseded-run" ]]; then touch "$FIXTURE/race-marker-seen"; fi
+        rm -rf "$WT" ;;
     esac
   }
   notify() { :; }
@@ -313,6 +324,34 @@ PYCODE
   done
   printf '20\n' > "$FIXTURE/success"
   : > "$FIXTURE/polls"
+  # Capture the process tree, then let the step fail before ps returns it.
+  cat > "$FIXTURE/bin/ps" <<'EOF'
+#!/bin/bash
+/bin/ps "$@" > "$FIXTURE/race-snapshot"
+touch "$FIXTURE/race-release"
+pid=$(cat "$FIXTURE/race-parent")
+while kill -0 "$pid" 2>/dev/null; do
+  state=$(/bin/ps -o stat= -p "$pid" 2>/dev/null || :)
+  [[ -z "$state" || "$state" == Z* ]] && break
+  /bin/sleep 0.01
+done
+cat "$FIXTURE/race-snapshot"
+EOF
+  chmod +x "$FIXTURE/bin/ps"
+  touch "$FIXTURE/discover-race"
+  printf '21\n' > "$FIXTURE/success"
+  export PATH="$FIXTURE/bin:$saved_path"
+  rc=0; set +e; install_run 20; rc=$?; set -e
+  export PATH="$saved_path"
+  [[ "$rc" == 9 && ! -e "$FIXTURE/race-marker-seen" ]]
+  [[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["state"])' "$ATTEMPTS/20/state.json")" == failed ]]
+  pid=$(cat "$FIXTURE/race-child")
+  if kill -0 "$pid" 2>/dev/null && [[ "$(ps -o stat= -p "$pid")" != Z* ]]; then
+    echo "surviving process $pid" >&2; exit 1
+  fi
+  rm -f "$FIXTURE/discover-race"
+  rm -rf "$ATTEMPTS/20"
+  printf '20\n' > "$FIXTURE/success"
   # Polling must survive an API error before detecting the newer run.
   touch "$FIXTURE/gh-error"
   (
