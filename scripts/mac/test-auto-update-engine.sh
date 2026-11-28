@@ -81,6 +81,18 @@ for retry in 1 2 3 4 5 6; do
   watch_iteration; expect ''; [[ "$NEXT_DELAY" == 5 && "$LAST_WATCHED_WAIT" == "$retry" ]]
 done
 watch_iteration; expect 'install 102'; [[ -z "$LAST_WATCHED" && "$LAST_WATCHED_WAIT" == 0 && "$NEXT_DELAY" == 0 ]]
+# A stale active listing must not cause the capped watch to start again.
+for active_status in RUNNING QUEUED; do
+  printf '101\n' > "$STATE"
+  RUNNING=''; QUEUED=''; SUCCESS=102
+  printf -v "$active_status" '%s' 103
+  watch_iteration; expect 'watch 103'
+  for retry in 1 2 3 4 5 6; do
+    watch_iteration; expect ''; [[ "$NEXT_DELAY" == 5 && "$LAST_WATCHED_WAIT" == "$retry" ]]
+  done
+  watch_iteration; expect 'install 102'; [[ -z "$LAST_WATCHED" && "$LAST_WATCHED_WAIT" == 0 && "$NEXT_DELAY" == 0 ]]
+done
+QUEUED=''
 # A newer run arriving during watch supersedes the successful watched run.
 RUNNING=103; SUCCESS=102
 watch_iteration; expect 'watch 103'

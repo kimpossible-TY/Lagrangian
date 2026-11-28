@@ -630,16 +630,14 @@ watch_iteration() {
       NEXT_DELAY=5
       return
     fi
+    # A stale active listing must not immediately restart the same watch and
+    # reset the retry budget before the older success can be considered.
+    if (( running == LAST_WATCHED )); then running=0; fi
     LAST_WATCHED=""; LAST_WATCHED_WAIT=0
   elif [[ -n "${LAST_WATCHED:-}" ]] && (( LAST_WATCHED <= success || LAST_WATCHED <= installed )); then
     LAST_WATCHED=""; LAST_WATCHED_WAIT=0
   fi
   if (( running > installed && running > success )); then
-    # The list endpoint may briefly lag behind a completed watch.
-    if [[ "${LAST_WATCHED:-}" == "$running" ]]; then
-      NEXT_DELAY=5
-      return
-    fi
     echo "$(date) watching run $running"
     if gh run watch "$running" -R "$REPO" --exit-status; then
       echo "$(date) run $running succeeded; checking for newer runs"
