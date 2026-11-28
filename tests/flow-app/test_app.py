@@ -807,7 +807,13 @@ class FetchEngine(unittest.TestCase):
         if args[:3] == ['gh', 'run', 'download']:
             dest = Path(args[args.index('--dir') + 1])
             root = dest / 'flow-engine-darwin-arm64' if self.layout == 'nested' else dest
-            self.write_artifact(root, checksum=self.checksum, manifest=self.payload_manifest, body=self.body)
+            with tempfile.TemporaryDirectory(dir=self.root) as tmp:
+                payload = Path(tmp) / 'payload'
+                wrapper = Path(tmp) / 'wrapper'
+                self.write_artifact(payload, checksum=self.checksum, manifest=self.payload_manifest, body=self.body)
+                package.native_delivery_artifact.pack(payload, wrapper, repository='kimpossible-TY/Lagrangian',
+                                                      run_id='42', head='ab' * 20)
+                shutil.copytree(wrapper, root, dirs_exist_ok=True)
             return ''
         if args[:2] == ['/usr/bin/xattr', '-dr']:
             return ''
@@ -825,6 +831,8 @@ class FetchEngine(unittest.TestCase):
                 patch.object(package.sys, 'platform', platform), \
                 patch.object(package, 'capture', side_effect=self.gh), \
                 patch.object(package, 'run', side_effect=self.gh), \
+                patch.object(package, 'download_engine_artifact', side_effect=lambda repo, run_id, dest: self.gh(
+                    ['gh', 'run', 'download', run_id, '--repo', repo, '--name', package.ENGINE_ARTIFACT, '--dir', dest])), \
                 patch.object(package, 'resolve_engine', return_value=(self.dest / 'flow-engine', 'tinymist test')) as resolve, \
                 patch('sys.stdout', stdout):
             package.fetch_engine(args)

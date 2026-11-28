@@ -43,7 +43,7 @@ class NativeDeliveryConsumerCLI(unittest.TestCase):
         cls.build_root = Path(os.environ['NA14_BUILD_ROOT']).resolve()
         assert str(cls.build_root).startswith('/Volumes/devSSD/Developer/lagrangian-native-20261117/build/artifact-transport-v1/')
         cls.app = cls.build_root / cls.root.name / 'Lagrangian.app'
-        cls.env = dict(os.environ, FLOW_SIGN_IDENTITY='-', PYTHONDONTWRITEBYTECODE='1',
+        cls.env = dict(os.environ, FLOW_SIGN_IDENTITY='-', PYTHONDONTWRITEBYTECODE='1', FLOW_DOWNLOAD_CONCURRENCY='1',
                        NA14_FIXTURE_ROOT=str(cls.root), NA14_CURRENT_HEAD=cls.head,
                        NA14_FIXTURE_ENGINE=str(cls.artifact), NA14_FIXTURE_READER=str(cls.reader))
         cli = write(cls.root / 'cli.py', '''import importlib.util,json,os,sys

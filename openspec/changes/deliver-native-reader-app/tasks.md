@@ -50,3 +50,4 @@ These tasks cover initial delivery production and its isolated checks. Final NA0
 - [x] 8.3 Publish current app/tar on both cache paths and retain only engine E inputs on reuse; reject flat/tampered transport without fallback.
 - [x] 8.4 Supply focused archive/cache/reader and actual lossy-ZIP old CLI regression/negative/interrupt procedures with explicitly offline provenance fixtures.
 - [x] 8.5 Supply fixed-source producer/consumer assembly and evidence binding procedure; execute actual proof after freeze and record final integration gates outside source.
+- [x] 8.6 Correct shared parallel transport fallback, diagnostics, wiring coverage and documented transport contract.

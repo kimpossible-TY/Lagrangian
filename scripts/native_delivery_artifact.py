@@ -13,6 +13,8 @@ from pathlib import Path
 import re
 import shutil
 import stat
+import subprocess
+import sys
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -112,6 +114,15 @@ def _extract_zip(archive, dest):
                     shutil.copyfileobj(src, out, length=1024 * 1024)
 
 
+def _sanitize_download_error(error, token):
+    message = str(error)
+    if token:
+        message = message.replace(token, '[REDACTED]')
+    message = re.sub(r'[A-Za-z][A-Za-z0-9+.-]*://[^\s\'"<>]+',
+                     lambda match: re.split(r'[?#]', match.group(), maxsplit=1)[0], message)
+    return ' '.join(message.splitlines())
+
+
 def download_artifact(repo, run_id, artifact_name, dest, *, fallback_run, capture_gh):
     """Download an Actions ZIP in bounded ranges, or use the existing gh fallback."""
     dest = Path(dest)
@@ -134,8 +145,15 @@ def download_artifact(repo, run_id, artifact_name, dest, *, fallback_run, captur
     concurrency = download_concurrency()
     if concurrency <= 1:
         return fallback()
+    token = None
+    def capture(args):
+        nonlocal token
+        result = capture_gh(args)
+        if args == ['gh', 'auth', 'token']:
+            token = result
+        return result
     try:
-        url = _artifact_url(repo, run_id, artifact_name, capture_gh)
+        url = _artifact_url(repo, run_id, artifact_name, capture)
         with urllib.request.urlopen(urllib.request.Request(url, method='HEAD'), timeout=30) as response:
             if response.headers.get('Accept-Ranges', '').lower().strip() != 'bytes':
                 raise ValueError('Range requests unavailable')
@@ -175,7 +193,10 @@ def download_artifact(repo, run_id, artifact_name, dest, *, fallback_run, captur
                     with (Path(tmp) / str(index)).open('rb') as part:
                         shutil.copyfileobj(part, out, length=1024 * 1024)
             _extract_zip(archive, dest)
-    except Exception:
+    except (OSError, ValueError, urllib.error.URLError, zipfile.BadZipFile,
+            subprocess.CalledProcessError, json.JSONDecodeError, KeyError) as error:
+        print(f'parallel artifact download unavailable: {type(error).__name__}: '
+              f'{_sanitize_download_error(error, token)}; using gh run download', file=sys.stderr)
         return fallback()
 
 

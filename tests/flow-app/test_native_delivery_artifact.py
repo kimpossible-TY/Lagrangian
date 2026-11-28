@@ -1,11 +1,13 @@
 """Bounded native tar transport, using the shared reader archive owner. No Swift/CI."""
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import hashlib
+import importlib.util
 import io
 import json
 import os
 from pathlib import Path
 import shutil
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -14,7 +16,7 @@ import zipfile
 import urllib.error
 from email.message import Message
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'scripts'))
@@ -213,10 +215,11 @@ class ParallelDownloadTests(unittest.TestCase):
         self.ranges = []; self.fail_once = False; self.truncate = False; self.accept_ranges = True
         self.range_barrier = None; self.range_lock = threading.Lock(); self.ranges_overlapped = threading.Event()
         self.active_ranges = 0; self.max_active_ranges = 0
-        self.auth = []; test = self
+        self.auth = []; self.heads = 0; test = self
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *args): pass
             def do_HEAD(self):
+                test.heads += 1
                 test.auth.append(self.headers.get('Authorization'))
                 self.send_response(200)
                 if test.accept_ranges: self.send_header('Accept-Ranges', 'bytes')
@@ -340,6 +343,77 @@ class ParallelDownloadTests(unittest.TestCase):
         self.assertTrue(all(x is None for x in self.auth))
         restored = artifact.unpack(self.dest, self.root/'redirect-restored', repository='fixture/repo', run_id='17', head=self.head)
         self.assertEqual(artifact.inventory(restored, cached=True), artifact.inventory(self.payload))
+
+    def test_package_and_consumer_use_real_parallel_transport(self):
+        spec = importlib.util.spec_from_file_location('transport_wiring_package', ROOT / 'scripts/flow-app.py')
+        package = importlib.util.module_from_spec(spec); spec.loader.exec_module(package)
+        consumer = package.native_delivery_consumer
+        real_download = package.download_engine_artifact
+        record = {'databaseId': 17, 'headSha': self.head}
+        receipt = dict.fromkeys(consumer.FIELDS)
+        receipt.update(schemaVersion=2, repository='fixture/repo', runId='17',
+                       runHeadSHA=self.head, enginePath=str(self.payload/'flow-engine'))
+        (self.payload/consumer.CONTEXT).write_text(json.dumps(receipt))
+        owner = Mock()
+        owner.read.return_value = receipt
+        owner.require.side_effect = lambda condition, message: self.assertTrue(condition, message)
+        class ReachedUnpack(Exception): pass
+        with patch.object(artifact, '_artifact_url', return_value=self.url), \
+             patch.dict(os.environ, FLOW_DOWNLOAD_CONCURRENCY='4'), \
+             patch.object(package, 'run', side_effect=AssertionError('fallback called')), \
+             patch.object(package, 'capture', return_value=self.head), \
+             patch.object(package, 'github_repo', return_value='fixture/repo'), \
+             patch.object(package, 'delivery_module', return_value=owner), \
+             patch.object(consumer.flow_engine_runs, 'select_run', return_value=record), \
+             patch.object(consumer, 'context', side_effect=[receipt, ReachedUnpack()]), \
+             patch.object(package, 'download_engine_artifact', wraps=real_download) as download, \
+             patch.object(artifact, 'unpack', wraps=artifact.unpack) as unpack:
+            with self.assertRaises(ReachedUnpack):
+                with consumer.consume(package, self.payload/'flow-engine'):
+                    self.fail('consumer should stop after unpack')
+        download.assert_called_once()
+        self.assertEqual(download.call_args.args[:2], ('fixture/repo', '17'))
+        unpack.assert_called_once()
+        self.assertEqual(self.heads, 1)
+        self.assertEqual(len(self.ranges), 4)
+        self.assertTrue(all(value is None for value in self.auth))
+
+    def test_only_expected_failures_fallback_with_sanitized_diagnostic(self):
+        token = 'ghs_FAKE_TOKEN_DO_NOT_LEAK'
+        message = f'{token} https://blob.example/file?sig=SECRETSIG#fragment suffix'
+        errors = [OSError(message), ValueError(message), urllib.error.URLError(message),
+                  zipfile.BadZipFile(message), subprocess.CalledProcessError(1, message),
+                  json.JSONDecodeError(message, '', 0), KeyError(message)]
+        def resolver(repo, run_id, name, capture):
+            capture(['gh', 'auth', 'token'])
+            raise current_error
+        for current_error in errors:
+            with self.subTest(error=type(current_error).__name__):
+                stderr = io.StringIO(); stdout = io.StringIO(); fallback = Mock()
+                with patch.object(artifact, '_artifact_url', side_effect=resolver), \
+                     patch.dict(os.environ, FLOW_DOWNLOAD_CONCURRENCY='4'), \
+                     patch('sys.stderr', stderr), patch('sys.stdout', stdout):
+                    artifact.download_artifact('fixture/repo', '17', 'engine', self.dest,
+                                               fallback_run=fallback, capture_gh=lambda _: token)
+                fallback.assert_called_once()
+                output = stdout.getvalue() + stderr.getvalue()
+                safe = str(current_error).replace(token, '[REDACTED]').replace(
+                    'https://blob.example/file?sig=SECRETSIG#fragment', 'https://blob.example/file')
+                safe = ' '.join(safe.splitlines())
+                self.assertEqual(stderr.getvalue(), f'parallel artifact download unavailable: '
+                                 f'{type(current_error).__name__}: {safe}; using gh run download\n')
+                for secret in (token, 'SECRETSIG', '?', '#fragment'):
+                    self.assertNotIn(secret, output)
+
+        for error in (TypeError('programming error'), RuntimeError('programming error'), KeyboardInterrupt()):
+            with self.subTest(error=type(error).__name__):
+                fallback = Mock()
+                with patch.object(artifact, '_artifact_url', side_effect=error), \
+                     patch.dict(os.environ, FLOW_DOWNLOAD_CONCURRENCY='4'), self.assertRaises(type(error)) as raised:
+                    artifact.download_artifact('fixture/repo', '17', 'engine', self.dest,
+                                               fallback_run=fallback, capture_gh=lambda _: token)
+                self.assertIs(raised.exception, error)
+                fallback.assert_not_called()
 
 
 if __name__=='__main__':unittest.main()
