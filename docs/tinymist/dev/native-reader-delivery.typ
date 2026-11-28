@@ -779,3 +779,11 @@ The updater signal cleanup review owner correction registers the following 3 pat
 `scripts/mac/auto-update-engine.sh`,
 `scripts/mac/test-auto-update-engine.sh`.
 Hashes are Git-derived.
+
+The updater signal forwarding owner correction registers the following 3 paths from
+`2a2d80575b9f41f2acdbadd7144ef903b399de0f` →
+`4b961c55223703ca576fe687dd596520c4c7f056`:
+`scripts/mac/README.md`,
+`scripts/mac/auto-update-engine.sh`,
+`scripts/mac/test-auto-update-engine.sh`.
+Hashes are Git-derived.
