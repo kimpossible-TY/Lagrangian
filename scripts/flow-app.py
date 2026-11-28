@@ -503,14 +503,7 @@ def ensure_outside_target(path):
         raise ValueError('Refusing to store the engine inside the repository target directory. '
                          'The download is the built executable; choose a path outside target/.')
 
-_original_run, _original_capture = run, capture
-
-
 def download_engine_artifact(repo, run_id, dest):
-    command = ['gh', 'run', 'download', run_id, '--repo', repo,
-               '--name', ENGINE_ARTIFACT, '--dir', dest]
-    if run is not _original_run or capture is not _original_capture:
-        return run(command)
     return native_delivery_artifact.download_artifact(
         repo, run_id, ENGINE_ARTIFACT, dest, fallback_run=run, capture_gh=capture)
 
