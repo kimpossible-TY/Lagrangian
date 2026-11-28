@@ -68,6 +68,19 @@ QUEUED=''; LAST_WATCHED=''
 RUNNING=102; SUCCESS=101
 watch_iteration; expect 'watch 102'; [[ "$NEXT_DELAY" == 0 ]]
 watch_iteration; expect ''; [[ "$NEXT_DELAY" == 5 ]]
+# Active listing can clear before the success listing catches up.
+RUNNING=''; SUCCESS=101
+watch_iteration; expect ''; [[ "$NEXT_DELAY" == 5 ]]
+SUCCESS=102
+watch_iteration; expect 'install 102'; [[ "$NEXT_DELAY" == 0 && -z "$LAST_WATCHED" && "$LAST_WATCHED_WAIT" == 0 ]]
+printf '101\n' > "$STATE"
+RUNNING=103; SUCCESS=102
+watch_iteration; expect 'watch 103'
+RUNNING=''; SUCCESS=102
+for retry in 1 2 3 4 5 6; do
+  watch_iteration; expect ''; [[ "$NEXT_DELAY" == 5 && "$LAST_WATCHED_WAIT" == "$retry" ]]
+done
+watch_iteration; expect 'install 102'; [[ -z "$LAST_WATCHED" && "$LAST_WATCHED_WAIT" == 0 && "$NEXT_DELAY" == 0 ]]
 # A newer run arriving during watch supersedes the successful watched run.
 RUNNING=103; SUCCESS=102
 watch_iteration; expect 'watch 103'
@@ -217,7 +230,7 @@ if command=='fetch-engine':
     child=subprocess.Popen([sys.executable,'-c','import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'], start_new_session=True)
     def on_term(*args):
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
-        late=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'], start_new_session=True)
+        late=subprocess.Popen([sys.executable,'-c','import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'])
         (root/'late-pid').write_text(str(late.pid))
         (root/'cleanup-exit').write_text('1')
         time.sleep(0.3)
@@ -270,6 +283,22 @@ PYCODE
   [[ "$rc" == 9 && ! -e "$FIXTURE/superseded-run" ]]
   grep -q '^hang$' "$FIXTURE/polls"
   rm "$FIXTURE/gh-hang"
+  # Even a failed snapshot must terminate the entire step process group.
+  mkdir -p "$FIXTURE/bin"
+  printf '#!/bin/bash\nexit 1\n' > "$FIXTURE/bin/ps"
+  chmod +x "$FIXTURE/bin/ps"
+  saved_path="$PATH"; export PATH="$FIXTURE/bin:$PATH"
+  printf '21\n' > "$FIXTURE/success"
+  rc=0
+  ( supersede_run() { exit 77; }; run_interruptible_step 20 "$FIXTURE/step-output" bash -c '/bin/sleep 30 & echo $! > "$FIXTURE/ps-failure-child"; echo $$ > "$FIXTURE/ps-failure-pid"; wait' ) || rc=$?
+  export PATH="$saved_path"
+  [[ "$rc" == 77 ]]
+  for pidfile in ps-failure-pid ps-failure-child; do
+    pid=$(cat "$FIXTURE/$pidfile")
+    if kill -0 "$pid" 2>/dev/null && [[ "$(ps -o stat= -p "$pid")" != Z* ]]; then
+      echo "surviving process $pid" >&2; exit 1
+    fi
+  done
   printf '20\n' > "$FIXTURE/success"
   : > "$FIXTURE/polls"
   # Polling must survive an API error before detecting the newer run.

@@ -403,12 +403,14 @@ run_interruptible_step() {
   rm -f "$marker"
   if declare -F "$1" >/dev/null; then shell_function=1; export -f "$1"; export APP; fi
   if declare -F gh >/dev/null; then export -f gh; fi
-  python3 - "$current" "$output" "$marker" "$REPO" "$shell_function" "$@" <<'PYCODE' || rc=$?
+  export -f newer_success_run
+  export REPO
+  python3 - "$current" "$output" "$marker" "$shell_function" "$@" <<'PYCODE' || rc=$?
 import os, signal, subprocess, sys, tempfile, time
 from pathlib import Path
 
-current, output, marker, repo, shell_function = sys.argv[1:6]
-command = sys.argv[6:]
+current, output, marker, shell_function = sys.argv[1:5]
+command = sys.argv[5:]
 if shell_function == '1': command = ['bash', '-c', '"$@"', 'updater-step', *command]
 interval = float(os.environ.get('LAGRANGIAN_SUPERSEDE_POLL_SECONDS', '30'))
 with open(output, 'w') as out:
@@ -428,10 +430,7 @@ def stop_query(query):
 
 def query_newer():
     with tempfile.TemporaryFile(mode='w+') as out:
-        query = subprocess.Popen(['bash', '-c', '"$@"', 'updater-query', 'gh',
-                                  'run', 'list', '-R', repo, '-w', 'flow-engine.yml',
-                                  '-b', 'main', '-s', 'success', '-L', '1', '--json',
-                                  'databaseId', '-q', '.[] | .databaseId'],
+        query = subprocess.Popen(['bash', '-c', 'newer_success_run "$1"', '_', current],
                                  stdout=out, stderr=subprocess.DEVNULL, start_new_session=True)
         deadline = time.monotonic() + 15
         while query.poll() is None:
@@ -442,11 +441,15 @@ def query_newer():
         if query.returncode != 0: return None
         out.seek(0)
         value = out.read().strip()
-        return value if value.isascii() and value.isdigit() and int(value) > int(current) else None
+        return value or None
 
 known = {proc.pid}
 def discover():
-    lines = subprocess.check_output(['ps', '-A', '-o', 'pid=,ppid=,pgid='], text=True, timeout=2).splitlines()
+    try:
+        lines = subprocess.check_output(['ps', '-A', '-o', 'pid=,ppid=,pgid='], text=True, timeout=2).splitlines()
+    except (OSError, subprocess.SubprocessError) as exc:
+        print('process discovery failed:', exc, file=sys.stderr)
+        return
     pairs = [tuple(map(int, line.split())) for line in lines if len(line.split()) == 3]
     changed = True
     while changed:
@@ -483,9 +486,6 @@ while True:
     Path(marker).write_text(newer + '\n')
     try:
         discover()
-        if proc.poll() is not None:
-            Path(marker).unlink()
-            sys.exit(result())
         send(signal.SIGTERM)
         deadline = time.monotonic() + 1
         while time.monotonic() < deadline:
@@ -501,6 +501,9 @@ while True:
             time.sleep(0.05)
     except (OSError, subprocess.SubprocessError, TimeoutError) as exc:
         print('supervisor cleanup failed:', exc, file=sys.stderr)
+        send(signal.SIGKILL)
+        try: proc.wait(timeout=2)
+        except subprocess.TimeoutExpired: pass
         Path(marker).unlink(missing_ok=True)
         sys.exit(1)
     sys.exit(77)
@@ -621,6 +624,16 @@ watch_iteration() {
   running=$((10#${running:-0})); queued=$((10#${queued:-0}))
   success=$((10#${success:-0})); installed=$((10#${installed:-0}))
   if (( queued > running )); then running="$queued"; fi
+  if [[ -n "${LAST_WATCHED:-}" ]] && (( LAST_WATCHED > success && LAST_WATCHED > installed && running <= LAST_WATCHED )); then
+    if (( ${LAST_WATCHED_WAIT:-0} < 6 )); then
+      LAST_WATCHED_WAIT=$((${LAST_WATCHED_WAIT:-0} + 1))
+      NEXT_DELAY=5
+      return
+    fi
+    LAST_WATCHED=""; LAST_WATCHED_WAIT=0
+  elif [[ -n "${LAST_WATCHED:-}" ]] && (( LAST_WATCHED <= success || LAST_WATCHED <= installed )); then
+    LAST_WATCHED=""; LAST_WATCHED_WAIT=0
+  fi
   if (( running > installed && running > success )); then
     # The list endpoint may briefly lag behind a completed watch.
     if [[ "${LAST_WATCHED:-}" == "$running" ]]; then
@@ -631,12 +644,13 @@ watch_iteration() {
     if gh run watch "$running" -R "$REPO" --exit-status; then
       echo "$(date) run $running succeeded; checking for newer runs"
       LAST_WATCHED="$running"
+      LAST_WATCHED_WAIT=0
       NEXT_DELAY=0
     else
       echo "$(date) watch for run $running failed or run did not succeed; retrying detection"
     fi
   elif (( success > installed )); then
-    LAST_WATCHED=""
+    LAST_WATCHED=""; LAST_WATCHED_WAIT=0
     if [[ -e "$ATTEMPTS/$success" || -L "$ATTEMPTS/$success" ]]; then
       # Keep the failure and its last phase visible. Do not reset pipeline status,
       # show another notification, or retry package replacement automatically.
