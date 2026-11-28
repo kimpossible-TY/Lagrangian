@@ -413,8 +413,10 @@ current, output, marker, shell_function = sys.argv[1:5]
 command = sys.argv[5:]
 if shell_function == '1': command = ['bash', '-c', '"$@"', 'updater-step', *command]
 interval = float(os.environ.get('LAGRANGIAN_SUPERSEDE_POLL_SECONDS', '30'))
-with open(output, 'w') as out:
-    proc = subprocess.Popen(command, start_new_session=True, stdout=out)
+proc = query = None
+known = set()
+spawning = False
+first_signal = None
 
 def result():
     code = proc.returncode
@@ -429,21 +431,27 @@ def stop_query(query):
     query.wait(timeout=2)
 
 def query_newer():
+    global query, spawning
     with tempfile.TemporaryFile(mode='w+') as out:
+        spawning = True
         query = subprocess.Popen(['bash', '-c', 'newer_success_run "$1"', '_', current],
                                  stdout=out, stderr=subprocess.DEVNULL, start_new_session=True)
+        spawning = False
+        if first_signal is not None: shutdown(first_signal, None, deferred=True)
         deadline = time.monotonic() + 15
         while query.poll() is None:
             if proc.poll() is not None or time.monotonic() >= deadline:
                 stop_query(query)
+                query = None
                 return None
             time.sleep(0.1)
-        if query.returncode != 0: return None
+        code = query.returncode
+        query = None
+        if code != 0: return None
         out.seek(0)
         value = out.read().strip()
         return value or None
 
-known = {proc.pid}
 def discover():
     try:
         lines = subprocess.check_output(['ps', '-A', '-o', 'pid=,ppid=,pgid='], text=True, timeout=2).splitlines()
@@ -474,6 +482,53 @@ def gone():
     except ProcessLookupError: return True
     return False
 
+def terminate_step():
+    send(signal.SIGTERM)
+    deadline = time.monotonic() + 1
+    while time.monotonic() < deadline:
+        discover()
+        send(signal.SIGTERM)
+        time.sleep(0.05)
+    discover()
+    send(signal.SIGKILL)
+    proc.wait(timeout=2)
+
+def shutdown(signum, frame, deferred=False):
+    global first_signal
+    if first_signal is not None and not deferred: return
+    first_signal = signum
+    # Popen can be interrupted before assigning its returned child. Finish
+    # publishing that child before cleanup, without letting a second signal
+    # replace the first or reenter cleanup. No main-loop lock is held here.
+    if spawning: return
+    if query is not None:
+        try: stop_query(query)
+        except (OSError, subprocess.SubprocessError) as exc:
+            print('signal query cleanup failed:', exc, file=sys.stderr)
+    try:
+        if proc is not None:
+            discover()
+            terminate_step()
+    except (OSError, subprocess.SubprocessError) as exc:
+        print('signal cleanup failed:', exc, file=sys.stderr)
+    finally:
+        if proc is not None:
+            try:
+                send(signal.SIGKILL)
+                proc.wait(timeout=2)
+            except (OSError, subprocess.SubprocessError) as exc:
+                print('signal cleanup retry failed:', exc, file=sys.stderr)
+    sys.exit(128 + first_signal)
+
+for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+    signal.signal(sig, shutdown)
+with open(output, 'w') as out:
+    spawning = True
+    proc = subprocess.Popen(command, start_new_session=True, stdout=out)
+    known.add(proc.pid)
+    spawning = False
+    if first_signal is not None: shutdown(first_signal, None, deferred=True)
+
 while True:
     deadline = time.monotonic() + max(0, interval)
     while time.monotonic() < deadline:
@@ -489,15 +544,7 @@ while True:
         completed = proc.poll()
         if completed is None:
             Path(marker).write_text(newer + '\n')
-        send(signal.SIGTERM)
-        deadline = time.monotonic() + 1
-        while time.monotonic() < deadline:
-            discover()
-            send(signal.SIGTERM)
-            time.sleep(0.05)
-        discover()
-        send(signal.SIGKILL)
-        proc.wait(timeout=2)
+        terminate_step()
         deadline = time.monotonic() + 2
         while not gone():
             if time.monotonic() >= deadline: raise TimeoutError('step processes did not exit')
