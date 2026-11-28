@@ -423,6 +423,166 @@ for code in (0, 9):
 PYCODE
 printf 'auto-update signal cleanup checks passed\n'
 
+# BEGIN outer-chain signal regression (also runnable against a saved updater).
+# Keep every real shell layer: signal the runner, never the supervisor. Only
+# network/worktree operations and installation commands are fixture stubs.
+python3 - "$TEST_DIR/outer-signals" "$PWD/scripts/mac/auto-update-engine.sh" <<'PYCODE'
+import os, signal, subprocess, sys, time
+from pathlib import Path
+
+root = Path(sys.argv[1]); root.mkdir()
+updater = sys.argv[2]
+step = root / 'step.py'
+step.write_text('''import os, signal, subprocess, sys, time
+from pathlib import Path
+root = Path(os.environ['FIXTURE'])
+role = sys.argv[1]
+if os.environ['STEP_MODE'] == 'ignore':
+    def on_term(*args): (root / (role + '-term')).touch()
+    signal.signal(signal.SIGTERM, on_term)
+if role == 'step':
+    (root / 'supervisor-pid').write_text(str(os.getppid()))
+    child = subprocess.Popen([sys.executable, __file__, 'descendant'], start_new_session=True)
+    deadline = time.monotonic() + 5
+    while not (root / 'descendant-pid').exists():
+        if time.monotonic() >= deadline: raise TimeoutError('descendant not ready')
+        time.sleep(0.01)
+(root / (role + '-pid')).write_text(str(os.getpid()))
+while True: time.sleep(0.1)
+''')
+runner_script = '''source "$1"
+export FIXTURE="$2" STEP_MODE="$3" LAGRANGIAN_SUPERSEDE_POLL_SECONDS=30
+STATE="$FIXTURE/installed"; STATUS="$FIXTURE/status"; ATTEMPTS="$FIXTURE/attempts"
+SRC="$FIXTURE/source"; APP="$FIXTURE/app"; LOGIN_PLIST="$FIXTURE/login.plist"
+ENGINE_CACHE_CONFIGURED="$FIXTURE/cache"
+notify() { :; }
+gh() {
+  case "$1 $2" in
+    'run view') printf 'fake-sha\\n' ;;
+    'run list') case " $* " in *' -s success '*) printf '20\\n' ;; esac ;;
+    *) return 1 ;;
+  esac
+}
+git() {
+  case " $* " in
+    *' worktree add '*)
+      python3 -c 'import os; print(os.getppid())' > "$FIXTURE/body-pid"
+      printf '%s\\n' "$WT" > "$FIXTURE/worktree"
+      mkdir -p "$WT/scripts"
+      cp "$FIXTURE/flow-app.py" "$WT/scripts/flow-app.py"
+      ;;
+    *' worktree remove '*) rm -rf "$WT"; touch "$FIXTURE/body-cleaned" ;;
+  esac
+}
+if [[ "$STEP_MODE" == normal-* ]]; then
+  # Preserve install_run while controlling only its body result. Existing
+  # integration tests cover real success, preflight, claims and superseding.
+  install_run_body() { return "${STEP_MODE#normal-}"; }
+  set +e
+  install_run 20
+  rc=$?
+  set -e
+  [[ -z "$(trap -p TERM INT HUP)" ]]
+  exit "$rc"
+fi
+watch_iteration
+'''
+
+def poll(predicate, message, timeout=8):
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        if time.monotonic() >= deadline: raise AssertionError(message)
+        time.sleep(0.01)
+
+def read_pid(path):
+    try: return int(path.read_text())
+    except (OSError, ValueError): return None
+
+def alive(pid):
+    try: os.kill(pid, 0)
+    except ProcessLookupError: return False
+    return True
+
+def kill(pid, group=False):
+    try: (os.killpg if group else os.kill)(pid, signal.SIGKILL)
+    except ProcessLookupError: pass
+
+def run_case(name, mode, sig=None, code=None):
+    fixture = root / name; fixture.mkdir(); (fixture / 'cache').mkdir()
+    (fixture / 'installed').write_text('10\n')
+    # fetch-engine is the only real step reached before cancellation.
+    (fixture / 'flow-app.py').write_text(step.read_text().replace(
+        "role = sys.argv[1]", "role = 'step' if sys.argv[1] == 'fetch-engine' else sys.argv[1]"))
+    env = dict(os.environ, HOME=str(fixture / 'home'))
+    with (fixture / 'log').open('w') as log:
+        # Background suite invocations can inherit ignored signals. Reset them
+        # before exec so Bash can install the updater's signal traps.
+        runner = subprocess.Popen(['bash', '-c', runner_script, '_', updater, str(fixture), mode],
+                                  env=env, start_new_session=True, stdout=log, stderr=log,
+                                  preexec_fn=lambda: [signal.signal(s, signal.SIG_DFL) for s in (
+                                      signal.SIGINT, signal.SIGQUIT, signal.SIGHUP, signal.SIGTERM)])
+        pids = {}
+        try:
+            if sig is not None:
+                poll(lambda: read_pid(fixture / 'step-pid'), name + ': step readiness timed out')
+                for role in ('body', 'supervisor', 'step', 'descendant'):
+                    pids[role] = read_pid(fixture / (role + '-pid'))
+                    assert pids[role], name + ': missing ' + role + ' PID'
+                # Save the actual topology before signaling. Assert it after
+                # the exit code so the old updater fails on the original bug.
+                try:
+                    topology = subprocess.run(['ps', '-A', '-o', 'pid=,ppid=,pgid='],
+                                              text=True, capture_output=True, timeout=2)
+                except (OSError, subprocess.SubprocessError) as exc:
+                    topology = subprocess.CompletedProcess(['ps'], 1, '', str(exc))
+                os.kill(runner.pid, sig)
+                expected = 128 + sig
+            else:
+                expected = code
+            poll(lambda: runner.poll() is not None, name + ': outer updater exit timed out')
+            assert runner.returncode == expected, (name, 'outer exit', runner.returncode, expected)
+            for role, pid in pids.items():
+                poll(lambda: not alive(pid), name + ': surviving ' + role + ' PID ' + str(pid))
+            if sig is not None:
+                assert topology.returncode == 0, name + ': ps failed: ' + topology.stderr
+                parents = {int(line.split()[0]): int(line.split()[1])
+                           for line in topology.stdout.splitlines() if len(line.split()) == 3}
+                assert parents[pids['body']] == runner.pid, (name, 'extra shell before body', parents)
+                assert parents[pids['supervisor']] == pids['body'], (name, 'extra shell before supervisor', parents)
+                assert parents[pids['step']] == pids['supervisor'], (name, 'step parent', parents)
+                assert parents[pids['descendant']] == pids['step'], (name, 'descendant parent', parents)
+                assert (fixture / 'body-cleaned').exists(), name + ': body EXIT cleanup did not finish'
+                assert (fixture / 'installed').read_text() == '10\n', name + ': installed marker changed'
+                if mode == 'ignore':
+                    for role in ('step', 'descendant'):
+                        assert (fixture / (role + '-term')).exists(), name + ': missing TERM before KILL'
+        except BaseException:
+            print((fixture / 'log').read_text(), file=sys.stderr)
+            raise
+        finally:
+            # Detached descendants need their own group cleanup even if the
+            # runner died before forwarding, as it does with the old updater.
+            for role in ('descendant', 'step', 'supervisor', 'body'):
+                pid = read_pid(fixture / (role + '-pid'))
+                if pid:
+                    if role in ('step', 'descendant'): kill(pid, group=True)
+                    kill(pid)
+            kill(runner.pid, group=True)
+            poll(lambda: runner.poll() is not None, name + ': fixture teardown timed out', timeout=3)
+            worktree = fixture / 'worktree'
+            if worktree.exists():
+                import shutil
+                shutil.rmtree(worktree.read_text().strip(), ignore_errors=True)
+    print('auto-update outer signal check passed: ' + name)
+
+for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+    run_case(sig.name, 'default', sig)
+run_case('ignores-term', 'ignore', signal.SIGTERM)
+for code in (0, 74, 75, 76, 77, 9):
+    run_case('normal-exit-' + str(code), 'normal-' + str(code), code=code)
+PYCODE
+# END outer-chain signal regression
+
 # Exercise actual interruptible commands in an isolated fake worktree.
 (
   eval "$saved_install_run"

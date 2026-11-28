@@ -396,16 +396,35 @@ check_superseded() {
   local newer
   if newer=$(newer_success_run "$1"); then supersede_run "$newer"; fi
 }
+# Each shell layer forwards TERM even for INT/HUP: non-interactive background
+# shells inherit ignored INT. Ignore further signals while waiting for cleanup.
+forward_install_signal() {
+  local child="$1" code="$2"
+  if (( signal_cleanup_started != 0 )); then return; fi
+  signal_cleanup_started=1
+  trap '' TERM INT HUP
+  if [[ -n "$child" ]]; then
+    kill -TERM "$child" 2>/dev/null || true
+    # The original wait returned early to run this trap. Wait again to reap.
+    wait "$child" || true
+  fi
+  trap - TERM INT HUP
+  exit "$code"
+}
 # The supervisor is the step's direct parent and owns the entire cancellation.
 run_interruptible_step() {
   local current="$1" output="$2" rc=0 marker="$WT/superseded-run" shell_function=0
+  local sup='' signal_cleanup_started=0
   shift 2
   rm -f "$marker"
   if declare -F "$1" >/dev/null; then shell_function=1; export -f "$1"; export APP; fi
   if declare -F gh >/dev/null; then export -f gh; fi
   export -f newer_success_run
   export REPO
-  python3 - "$current" "$output" "$marker" "$shell_function" "$@" <<'PYCODE' || rc=$?
+  trap 'forward_install_signal "$sup" 143' TERM
+  trap 'forward_install_signal "$sup" 130' INT
+  trap 'forward_install_signal "$sup" 129' HUP
+  python3 - "$current" "$output" "$marker" "$shell_function" "$@" <<'PYCODE' &
 import os, signal, subprocess, sys, tempfile, time
 from pathlib import Path
 
@@ -564,13 +583,16 @@ while True:
         sys.exit(result() if completed not in (None, 0) else 1)
     sys.exit(77 if completed is None else result())
 PYCODE
+  sup=$!
+  wait "$sup" || rc=$?
+  trap - TERM INT HUP
   if [[ "$rc" == 77 && -s "$marker" ]]; then
     supersede_run "$(cat "$marker")"
   fi
   return "$rc"
 }
 
-install_run() (
+install_run_body() {
 # The parent clears errexit only while it captures this status. Turn it back
 # on so a failed command still runs the ERR trap instead of continuing.
 set -Eeuo pipefail
@@ -652,7 +674,21 @@ echo "$(date) installed run $id"
 stage done done
 notify "빌드 $id 설치 완료"
 
-)
+}
+
+install_run() {
+  local inst='' rc=0 signal_cleanup_started=0
+  trap 'forward_install_signal "$inst" 143' TERM
+  trap 'forward_install_signal "$inst" 130' INT
+  trap 'forward_install_signal "$inst" 129' HUP
+  # A background function already runs in one subshell. An extra subshell
+  # wrapper would receive TERM instead of the body that waits for the step.
+  install_run_body "$@" &
+  inst=$!
+  wait "$inst" || rc=$?
+  trap - TERM INT HUP
+  return "$rc"
+}
 
 # One iteration returns immediately after a successful watch so selection is
 # refreshed before installation. Errors and idle iterations use the normal delay.
