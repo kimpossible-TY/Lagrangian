@@ -211,6 +211,8 @@ class ParallelDownloadTests(unittest.TestCase):
                 archive.write(file, file.name)
         self.data = data.getvalue()
         self.ranges = []; self.fail_once = False; self.truncate = False; self.accept_ranges = True
+        self.range_barrier = None; self.range_lock = threading.Lock(); self.ranges_overlapped = threading.Event()
+        self.active_ranges = 0; self.max_active_ranges = 0
         self.auth = []; test = self
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *args): pass
@@ -223,6 +225,17 @@ class ParallelDownloadTests(unittest.TestCase):
                 test.auth.append(self.headers.get('Authorization'))
                 value = self.headers.get('Range'); test.ranges.append(value)
                 start, end = map(int, value.removeprefix('bytes=').split('-'))
+                with test.range_lock:
+                    test.active_ranges += 1
+                    test.max_active_ranges = max(test.max_active_ranges, test.active_ranges)
+                try:
+                    if test.range_barrier and not test.ranges_overlapped.is_set():
+                        try: test.range_barrier.wait(timeout=3)
+                        except threading.BrokenBarrierError: pass
+                    self.send_range(start, end)
+                finally:
+                    with test.range_lock: test.active_ranges -= 1
+            def send_range(self, start, end):
                 if test.fail_once:
                     test.fail_once = False; self.send_error(500); return
                 body = test.data[start:end + 1]
@@ -244,8 +257,11 @@ class ParallelDownloadTests(unittest.TestCase):
             artifact.download_artifact('fixture/repo', '17', 'engine', self.dest, fallback_run=fallback, capture_gh=lambda _: None)
 
     def test_parallel_deflated_unpack_and_retry(self):
-        self.fail_once = True; self.download()
+        self.fail_once = True
+        self.range_barrier = threading.Barrier(2, action=self.ranges_overlapped.set)
+        self.download()
         self.assertFalse(self.fallbacks); self.assertGreaterEqual(len(self.ranges), 5)
+        self.assertGreaterEqual(self.max_active_ranges, 2)
         self.assertTrue(all(x is None for x in self.auth))
         restored = artifact.unpack(self.dest, self.root/'restored', repository='fixture/repo', run_id='17', head=self.head)
         self.assertEqual(artifact.inventory(restored, cached=True), artifact.inventory(self.payload))
@@ -304,11 +320,26 @@ class ParallelDownloadTests(unittest.TestCase):
         def capture(args):
             if args[1] == 'auth': return 'secret-token'
             return json.dumps([{'artifacts':[{'id': 4, 'name':'engine', 'expired':False}]}])
-        with patch.object(artifact.urllib.request, 'build_opener', return_value=Opener()):
-            self.assertEqual(artifact._artifact_url('fixture/repo', '17', 'engine', capture), 'https://blob.example/file')
+        local_opener = urllib.request.build_opener()
+        blob_requests = []
+        def open_blob(request, timeout):
+            blob_requests.append(request)
+            self.assertEqual(request.full_url, 'https://blob.example/file')
+            local = urllib.request.Request(self.url, headers=dict(request.header_items()), method=request.get_method())
+            return local_opener.open(local, timeout=timeout)
+        with patch.object(artifact.urllib.request, 'build_opener', return_value=Opener()), \
+             patch.object(artifact.urllib.request, 'urlopen', side_effect=open_blob), \
+             patch.dict(os.environ, FLOW_DOWNLOAD_CONCURRENCY='4'):
+            artifact.download_artifact('fixture/repo', '17', 'engine', self.dest,
+                fallback_run=lambda _: self.fail('unexpected fallback'), capture_gh=capture)
+        self.assertEqual(len(self_request), 1)
         self.assertEqual(self_request[0].host, 'api.github.com')
         self.assertEqual(self_request[0].get_header('Authorization'), 'Bearer secret-token')
-        self.download(); self.assertTrue(all(x is None for x in self.auth))
+        self.assertGreaterEqual(len(blob_requests), 5)
+        self.assertTrue(all(request.get_header('Authorization') is None for request in blob_requests))
+        self.assertTrue(all(x is None for x in self.auth))
+        restored = artifact.unpack(self.dest, self.root/'redirect-restored', repository='fixture/repo', run_id='17', head=self.head)
+        self.assertEqual(artifact.inventory(restored, cached=True), artifact.inventory(self.payload))
 
 
 if __name__=='__main__':unittest.main()
