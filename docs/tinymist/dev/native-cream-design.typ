@@ -236,6 +236,11 @@ and NA16 remain separate acceptance obligations.
 
 == NRD01B floating reader composition
 
+The Reflow body defaults to 15pt serif type, with 1.65 line height and paragraph
+spacing of 0.80 times the effective font size. The target reading measure is
+min(720pt, max(680pt, effective size × 45)), reduced to fit the viewport and
+side padding. Font size, zoom and the selected font remain adjustable.
+
 The reader uses cream paper edge-to-edge, with 16pt padding inside its one-row
 toolbar and a 1pt rule fading in beyond 4pt scroll. Ghost search and overflow use
 SF Symbols. `NativeBrandMarkControl` adds status, refresh and injected Home while
@@ -281,7 +286,8 @@ horizontal arrows cycle visible tools. PDF search-field Escape follows that
 order without invoking the explicit cancel button's selection release. Actual
 offscreen key events verify Find-before-drawer and Aa-before-tools ordering.
 A window-scoped keyDown monitor routes
-Shift+Return before text inputs consume it. Offscreen automated tests cover these
+Shift+Return for the read-only body while field editors, editable text views, other text input clients and
+responders with marked text retain it for input and IME composition. Offscreen automated tests cover these
 source contracts, including a held Refresh that focuses a visible selection
 release action without implicitly refreshing after release. Tests use generated
 temporary fixtures; interactive GUI acceptance

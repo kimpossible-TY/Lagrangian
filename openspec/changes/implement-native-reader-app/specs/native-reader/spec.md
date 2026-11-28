@@ -411,6 +411,14 @@ expression and use actual registered scope for document equivalence.
 - **THEN** their request bindings SHALL remain distinct and B pending cleanup SHALL NOT block independent A
 - **AND** original alias disappearance or retarget SHALL NOT prevent exact own withdrawal
 
+### Requirement: Reader body typography
+The Reflow reader SHALL default to a 15pt serif body face, use a 1.65 line height multiple and paragraph spacing of 0.80 times the effective font size. The target reading measure SHALL be `min(720pt, max(680pt, effectiveSize * 45))`, further reduced as needed to fit the viewport and its side padding. Font size and zoom change the effective size; the user may select another font.
+
+#### Scenario: Default reading column
+- **WHEN** a document opens at the default 15pt size and zoom with enough viewport width
+- **THEN** the reader uses a serif body face and a 680pt target reading column
+- **AND** body paragraphs use a 1.65 line height multiple and 12pt paragraph spacing
+
 ### Requirement: Minimal unified reflow toolbar and immediate appearance popover
 The native reflow reader SHALL present one toolbar row with a ghost outline toggle, sliding mode pill, SF Symbol search and overflow buttons, and opaque immediate Aa popover. Paper SHALL extend to both window edges. Valid selection actions SHALL float at the viewport bottom without resizing the window. At 640pt Reflow SHALL retain an icon-only outline toggle and compact mode switch.
 
@@ -519,7 +527,12 @@ NativeBrandMarkControl SHALL open Home through FlowApp.showWindow on hold or rig
 - **AND** existing reflowMode and pageMode selectors remain available with native radio semantics
 
 ### Requirement: Reader shortcut ownership and layered Escape
-The host SHALL route Cmd+\ to the outline drawer toggle, Cmd+1 to Reflow and Cmd+2 to Original PDF through the mode owner, Cmd+Shift+O to open and focus the outline, Opt+Cmd+0 to zoom reset/fit, Cmd+R and Shift+Return to Refresh, Cmd+Shift+S to the Strike review owner, Cmd+Shift+H to Highlight, Cmd+Shift+K to Ask, and Opt+Cmd+A to capsule focus/reopen. Cmd+0 SHALL remain Home via FlowApp. Escape SHALL dismiss Find, drawer, Aa or logo, tools retaining selection, then PDF selection, in that order.
+The host SHALL route reader shortcuts to their existing owners. Shift+Return SHALL remain with field editors, editable text views, other text input clients and responders with marked text for IME composition; the read-only reader body SHALL still refresh. Escape SHALL dismiss Find, drawer, Aa or logo, tools retaining selection, then PDF selection, in that order.
+
+#### Scenario: Reader shortcuts
+- **WHEN** the user presses Cmd+\\, Cmd+1, Cmd+2, Cmd+Shift+O, Opt+Cmd+0, Cmd+R, Shift+Return, Cmd+Shift+S, Cmd+Shift+H, Cmd+Shift+K or Opt+Cmd+A
+- **THEN** the host routes them respectively to outline toggle, Reflow, Original PDF, outline focus, zoom reset/fit, Refresh, Refresh, Strike, Highlight, Ask and capsule focus/reopen
+- **AND** Cmd+0 remains Home via FlowApp
 
 #### Scenario: Capsule keyboard loop and reopen
 - **WHEN** the user presses Opt+Cmd+A with a retained selection
