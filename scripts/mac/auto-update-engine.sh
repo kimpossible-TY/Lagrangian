@@ -399,20 +399,29 @@ check_superseded() {
 # Capture descendants by parent PID as well as process group: a child may start
 # a separate session. Keep discovered PIDs after their parent exits.
 terminate_step_tree() {
-  python3 - "$1" "${2:-tree}" <<'PYCODE'
+  python3 - "$1" "${2:-tree}" "${3:-}" <<'PYCODE'
 import os, signal, subprocess, sys, time
 root = int(sys.argv[1])
 known = {root}
+excluded = {os.getpid()}
 def discover():
     lines = subprocess.check_output(['ps', '-A', '-o', 'pid=', '-o', 'ppid='], text=True).splitlines()
     pairs = [tuple(map(int, line.split())) for line in lines if len(line.split()) == 2]
+    parents = dict(pairs)
+    ancestor = os.getpid()
+    while ancestor in parents and parents[ancestor] not in excluded and parents[ancestor] > 1:
+        ancestor = parents[ancestor]
+        excluded.add(ancestor)
+    if sys.argv[3]:
+        result = subprocess.run(['lsof', '-t', sys.argv[3]], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        known.update(int(pid) for pid in result.stdout.split() if pid.isdigit() and int(pid) not in excluded)
     changed = True
     while changed:
         added = {pid for pid, ppid in pairs if ppid in known} - known
         changed = bool(added)
         known.update(added)
 def send(sig):
-    for pid in sorted(known, reverse=True):
+    for pid in sorted(known - excluded, reverse=True):
         try: os.kill(pid, sig)
         except (ProcessLookupError, PermissionError): pass
     if sys.argv[2] == "session":
@@ -423,20 +432,24 @@ send(signal.SIGTERM)
 end = time.monotonic() + 1
 while time.monotonic() < end:
     discover()
+    send(signal.SIGTERM)
     time.sleep(0.05)
+discover()
 send(signal.SIGKILL)
 PYCODE
 }
 # The monitor owns only the child tree. The parent waits for both processes
 # before inspecting its result, so no monitor can outlive this step.
 run_interruptible_step() {
-  local current="$1" output="$2" child monitor rc=0 marker="$WT/superseded-run"
+  local current="$1" output="$2" child monitor rc=0 marker="$WT/superseded-run" step_token
   shift 2
   rm -f "$marker"
+  step_token=$(mktemp "$WT/step-token.XXXXXX")
   # A dedicated session keeps even reparented descendants in a group that can
   # be signalled again after the original child exits, including children born
   # while SIGTERM handlers run.
   (
+    exec 9<"$step_token"
     # Preserve injected shell commands used by isolated integration tests.
     if declare -F "$1" >/dev/null; then export -f "$1"; export APP; fi
     exec python3 -c 'import os,sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' bash -c '"$@"' updater-step "$@"
@@ -459,8 +472,14 @@ run_interruptible_step() {
       wait "$query" || query_rc=$?
       query=
       if [[ "$query_rc" == 0 ]]; then
-        mv "$marker.query" "$marker"
-        terminate_step_tree "$child" session
+        # Once TERM is delivered, finish publishing the decision and cleanup
+        # even if the parent observes the child exit in the meantime.
+        trap '' TERM
+        stat=$(ps -o stat= -p "$child" 2>/dev/null || true)
+        if [[ -n "$stat" && "$stat" != *Z* ]] && kill -TERM "$child" 2>/dev/null; then
+          mv "$marker.query" "$marker"
+          terminate_step_tree "$child" session "$step_token"
+        fi
         break
       fi
     done
@@ -474,9 +493,8 @@ run_interruptible_step() {
     kill "$monitor" 2>/dev/null || true
     wait "$monitor" 2>/dev/null || true
   fi
-  # A command that independently failed must not be hidden by a concurrent
-  # supersede decision. Signal exits and successful TERM handlers are expected.
-  if [[ -s "$marker" ]] && [[ "$rc" == 0 || "$rc" == 143 || "$rc" == 137 ]]; then
+  rm -f "$step_token" "$marker.query"
+  if [[ -s "$marker" ]]; then
     supersede_run "$(cat "$marker")"
   fi
   return "$rc"

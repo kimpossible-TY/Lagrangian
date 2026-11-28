@@ -1,9 +1,12 @@
 #!/bin/bash
 set -Eeuo pipefail
 cd "$(dirname "$0")/../.."
-source scripts/mac/auto-update-engine.sh
 TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/autoupdate-test.XXXXXX")
 trap 'rm -rf "$TEST_DIR"' EXIT
+export HOME="$TEST_DIR/home" LAGRANGIAN_ENGINE_CACHE="$TEST_DIR/engine-cache"
+mkdir -p "$HOME"
+source scripts/mac/auto-update-engine.sh
+SRC="$TEST_DIR/source"; APP="$TEST_DIR/app"; LOGIN_PLIST="$TEST_DIR/login.plist"
 # Cache preflight runs before install. Keep it off the Developer SSD so the
 # boot-volume device check stays out of these fixtures.
 case "$TEST_DIR" in
@@ -201,7 +204,8 @@ printf 'auto-update install failure leaves the marker unchanged\n'
   export FIXTURE="$TEST_DIR/interrupt" LAGRANGIAN_SUPERSEDE_POLL_SECONDS=0.1
   mkdir -p "$FIXTURE" "$FIXTURE/cache" "$FIXTURE/app"
   STATE="$FIXTURE/installed"; STATUS="$FIXTURE/status"; ATTEMPTS="$FIXTURE/attempts"
-  APP="$FIXTURE/app"; SRC="$FIXTURE/source"; ENGINE_CACHE_CONFIGURED="$FIXTURE/cache"
+  HOME="$FIXTURE/home"; APP="$FIXTURE/app"; SRC="$FIXTURE/source"; LOGIN_PLIST="$FIXTURE/login.plist"; ENGINE_CACHE_CONFIGURED="$FIXTURE/cache"
+  mkdir -p "$HOME"
   printf '10\n' > "$STATE"; printf 'untouched\n' > "$APP/sentinel"
   printf '20\n' > "$FIXTURE/success"
   cat > "$FIXTURE/flow-app.py" <<'PYCODE'
@@ -210,11 +214,13 @@ from pathlib import Path
 root=Path(os.environ['FIXTURE']); command=sys.argv[1]
 if command=='fetch-engine':
     if (root/'fail').exists(): sys.exit(int((root/'fail').read_text()))
-    child=subprocess.Popen([sys.executable,'-c','import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'], start_new_session=True)
+    child=subprocess.Popen([sys.executable,'-c','import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'], start_new_session=True, pass_fds=(9,))
     def on_term(*args):
-        late=subprocess.Popen([sys.executable,'-c','import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'])
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        late=subprocess.Popen([sys.executable,'-c','import time; time.sleep(60)'], start_new_session=True, pass_fds=(9,))
         (root/'late-pid').write_text(str(late.pid))
-        sys.exit(0)
+        (root/'cleanup-exit').write_text('1')
+        sys.exit(1)
     signal.signal(signal.SIGTERM, on_term)
     (root/'child-pid').write_text(str(os.getpid()))
     (root/'descendant-pid').write_text(str(child.pid))
@@ -256,16 +262,28 @@ PYCODE
   run_interruptible_step 20 "$FIXTURE/step-output" /bin/sleep 0.4
   (( SECONDS - start < 5 ))
   rm "$FIXTURE/gh-hang"
-  # The marker can precede signalling; an independent failure still wins.
-  saved_terminate=$(declare -f terminate_step_tree)
-  terminate_step_tree() { /bin/sleep 0.5; }
-  printf '21\n' > "$FIXTURE/success"
-  rc=0
-  run_interruptible_step 20 "$FIXTURE/step-output" /bin/sh -c 'sleep 0.3; exit 9' || rc=$?
-  [[ "$rc" == 9 ]]
-  eval "$saved_terminate"
   printf '20\n' > "$FIXTURE/success"
   : > "$FIXTURE/polls"
+  # Let the TERM handler finish and assert its new session is reparented
+  # before the real tree cleanup starts discovering token holders.
+  saved_terminate=$(declare -f terminate_step_tree)
+  eval "$(printf '%s\n' "$saved_terminate" | sed '1s/^terminate_step_tree /real_terminate_step_tree /')"
+  terminate_step_tree() {
+    if [[ "${2:-}" == session ]]; then
+      local n pid ppid
+      for n in {1..100}; do
+        if [[ -s "$FIXTURE/late-pid" ]]; then
+          pid=$(cat "$FIXTURE/late-pid")
+          ppid=$(ps -o ppid= -p "$pid" | tr -d ' ')
+          [[ "$ppid" != 1 ]] || break
+        fi
+        /bin/sleep 0.02
+      done
+      [[ "${ppid:-}" == 1 ]] || { echo 'late descendant was not reparented' >&2; return 1; }
+      touch "$FIXTURE/reparented"
+    fi
+    real_terminate_step_tree "$@"
+  }
   # Polling must survive an API error before detecting the newer run.
   touch "$FIXTURE/gh-error"
   (
@@ -275,6 +293,7 @@ PYCODE
   rc=0; set +e; install_run 20; rc=$?; set -e
   wait "$trigger"
   [[ "$rc" == 77 && "$(cat "$STATE")" == 10 && "$(cat "$APP/sentinel")" == untouched ]]
+  [[ "$(cat "$FIXTURE/cleanup-exit")" == 1 && -e "$FIXTURE/reparented" ]]
   [[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["state"])' "$ATTEMPTS/20/state.json")" == superseded ]]
   [[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["state"])' "$STATUS")" == superseded ]]
   for pidfile in child-pid descendant-pid late-pid; do
@@ -283,6 +302,7 @@ PYCODE
       echo "surviving process $pid" >&2; exit 1
     fi
   done
+  eval "$saved_terminate"
   # A superseded result requests immediate selection of the newer success.
   install_run() { printf '%s\n' "$1" >> "$FIXTURE/installed-runs"; [[ "$1" != 20 ]] || return 77; }
   printf '20\n' > "$FIXTURE/success"; rm -rf "$ATTEMPTS/20"
