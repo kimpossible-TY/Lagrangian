@@ -583,13 +583,15 @@ service identifies process pid/startedAt and revision identifies accepted output
 Each full-page bootstrap obtains and validates those identities afresh. Stored
 return routes do not authorize old revision/service reuse. Profiles inherit
 Project.packages and projectRefKey from their parent Flow profile; a key in a
-Reader services entry alone does not override it. Registry fallback applies
-only to unconfigured profiles: exact ID, then normalized key or catalog title
-against root basename or profile title, rejecting duplicate tiers. Profile title
-uses explicit title, parent name, profile name, then empty. A mounted state with
-no profile can fall back to route ID/root basename; inventory-only/unmounted
-profiles cannot supply a peer. The change design contains concrete configuration,
-full JSON schemas, transition ordering and the exact create/modify/delete map.
+Reader services entry alone does not override it. Registry matching follows
+the Swift-owned rule above: exact nonempty projectRefKey first, then normalized
+key against root basename or native profile name among unconfigured profiles,
+rejecting duplicates. Reader profiles use the parent native profile name when
+available, otherwise profile.name. A mounted state without a configured profile
+has only its root basename as a candidate; route/profile IDs and catalog titles
+are not aliases. Inventory-only/unmounted profiles cannot supply a peer. The change
+design contains concrete configuration, full JSON schemas, transition ordering
+and the exact create/modify/delete map.
 
 Both runtime modules are explicitly registered in sorted `web/assets.json`;
 existing install.py, server/assets.py and reader-bundle tooling deliver them
