@@ -116,7 +116,37 @@ private final class ReviewFixtureCell: NSTextAttachmentCell {
         try JSONEncoder().encode(doc).write(to: output.appendingPathComponent("long-document.json"))
         try bytes.write(to: output.appendingPathComponent("publication.pdf"))
         try JSONEncoder().encode(publication(context, bytes)).write(to: output.appendingPathComponent("publication.json"))
-        if scenario == "drawer" {
+        if scenario == "refresh-input" {
+            let key = event(window, "\r", .shift, code: 36)
+            var refreshes = 0
+            chrome.onRefresh = { refreshes += 1 }
+            window.makeFirstResponder(host.textView.bodyTextView)
+            try check(NativeReaderHostWindow.shouldInterceptRefresh(event: key, firstResponder: window.firstResponder), "Read-only body accepts refresh")
+            NSApp.sendEvent(key)
+            try check(refreshes == 1, "Body Shift Return refreshes once")
+            let field = NSTextField(frame: NSRect(x: 20, y: 20, width: 180, height: 28))
+            root.addSubview(field); window.makeFirstResponder(field)
+            guard let editor = window.firstResponder as? NSTextView, editor.isFieldEditor else { throw FlowError(message: "Field editor required") }
+            try check(!NativeReaderHostWindow.shouldInterceptRefresh(event: key, firstResponder: editor), "Field editor retains Shift Return")
+            NSApp.sendEvent(key)
+            try check(refreshes == 1, "Field editor does not refresh")
+            let input = NSTextView(frame: NSRect(x: 20, y: 60, width: 180, height: 50))
+            root.addSubview(input); window.makeFirstResponder(input)
+            input.setMarkedText("composition", selectedRange: NSRange(location: 0, length: 0), replacementRange: NSRange(location: NSNotFound, length: 0))
+            try check(input.hasMarkedText(), "IME fixture has marked text")
+            try check(!NativeReaderHostWindow.shouldInterceptRefresh(event: key, firstResponder: input), "Marked input retains Shift Return")
+            NSApp.sendEvent(key)
+            try check(refreshes == 1, "Marked input does not refresh")
+        } else if scenario == "mode-owner" {
+            var requests: [NativeReaderWindowController.Mode] = []
+            chrome.changeMode = { requests.append($0) }
+            chrome.modeSegmentSurface.pageButton.performClick(nil)
+            try check(requests == [.originalPages], "Segment emits one request")
+            try check(root.performKeyEquivalent(with: event(window, "2", .command)), "Cmd 2 handled")
+            try check(requests == [.originalPages, .originalPages], "Keyboard emits one request through the same host")
+            try check(root.performKeyEquivalent(with: event(window, "1", .command)), "Cmd 1 handled")
+            try check(requests == [.originalPages, .originalPages, .nativeReflow], "Cmd 1 emits one host request")
+        } else if scenario == "drawer" {
             try check(chrome.outlineToggleButton.identifier?.rawValue == "contentsDrawerToggle" && chrome.outlineToggleButton.isEnabled, "Ghost outline toggle wired")
             try check(chrome.outlineToggleButton.designRole == .ghost, "Outline uses shared ghost paint")
             try check(abs(chrome.outlineToggleButton.bounds.height - 30) < 0.5, "Outline ghost has 30pt hit height")

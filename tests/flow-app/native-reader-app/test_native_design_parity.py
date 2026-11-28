@@ -39,6 +39,8 @@ class NativeDesignParityTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn('assertions; offscreen AppKit only', result.stdout)
 
+    def test_refresh_respects_text_input(self): self.scenario('refresh-input')
+    def test_mode_has_one_request_owner(self): self.scenario('mode-owner')
     def test_outline_drawer_and_active_section(self): self.scenario('drawer')
     def test_centered_pass_through_notifications(self): self.scenario('notifications')
     def test_brand_mode_morph_and_toolbar(self): self.scenario('toolbar')

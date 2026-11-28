@@ -56,6 +56,13 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     guard Thread.isMainThread else { return }
     onScroll?(notification)
   }
+  func observe(_ clips: [NSClipView]) {
+    NotificationCenter.default.removeObserver(self)
+    for clip in clips {
+      clip.postsBoundsChangedNotifications = true
+      NotificationCenter.default.addObserver(self, selector: #selector(boundsChanged(_:)), name: NSView.boundsDidChangeNotification, object: clip)
+    }
+  }
   func dispose() { NotificationCenter.default.removeObserver(self) }
   deinit { NotificationCenter.default.removeObserver(self) }
 }
@@ -117,6 +124,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   private var disposed = false
   private var layoutObserver: NSObjectProtocol?
   private let capsuleScrollObserver = NativeReaderScrollObserver()
+  private var clipObservations = [NSKeyValueObservation]()
   private var dismissedCapsule: NativeFloatingCapsule.Binding?
   private var capsuleCapabilities: (NativeFloatingCapsule.Binding, [NativeFloatingCapsule.Action: String])?
   private weak var capsuleFocusReturn: NSResponder?
@@ -387,8 +395,23 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
       self.hostWindow.updateScrollChrome()
       self.updateCapsule()
     }
-    NotificationCenter.default.addObserver(capsuleScrollObserver, selector: #selector(NativeReaderScrollObserver.boundsChanged(_:)), name: NSView.boundsDidChangeNotification, object: nil)
+    observeScrollClips()
 
+  }
+
+  private func observeScrollClips() {
+    let clips = [textView.scrollView.contentView, originalPageView.enclosingScrollView?.contentView].compactMap { $0 }
+    capsuleScrollObserver.observe(clips)
+  }
+
+  private func observeScrollViewReplacements() {
+    let scrolls = [textView.scrollView, originalPageView.enclosingScrollView].compactMap { $0 }
+    clipObservations = scrolls.map { scroll in
+      scroll.observe(\.contentView, options: [.new]) { [weak self] _, _ in
+        MainActor.assumeIsolated { self?.observeScrollClips() }
+      }
+    }
+    observeScrollClips()
   }
 
   func open(_ profile: Profile, refresh: Bool = true, progress: @escaping (NativeReadProgress) -> Void) -> () -> Void {
@@ -422,6 +445,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
     chatView?.dispose(); chatView?.removeFromSuperview(); chatView = nil; chatContext = nil
     hostWindow.initialize()
     hostWindow.installOriginal(originalPageView)
+    observeScrollViewReplacements()
     hostWindow.prepareForOpen()
     try? hostWindow.resolveAutomaticAppearance()
     hostWindow.changeMode = { [weak self] in
@@ -1498,6 +1522,7 @@ struct NativeReaderOfflineProvider: NativeReaderDocumentProviding {
   }
   func dispose() {
     dismissCrossProjectPreview()
+    clipObservations.removeAll()
     capsuleScrollObserver.dispose()
     if let observer = layoutObserver { NotificationCenter.default.removeObserver(observer); layoutObserver = nil }
     cancel(); disposed = true; acceptedPageDelivery = nil; acceptedAssets = nil; session.event(.dispose); originalPageView.dispose(); textView.dispose()
@@ -1719,7 +1744,7 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
 @MainActor final class NativeReaderToolbarView: NSView {
   var onLayoutWidth: ((CGFloat) -> Void)?
   var onKeyEquivalent: ((NSEvent) -> Bool)?
-  var scrollOffset: CGFloat = 0 { didSet { needsDisplay = true } }
+  var scrollOffset: CGFloat = 0 { didSet { if scrollOffset != oldValue { needsDisplay = true } } }
   override func performKeyEquivalent(with event: NSEvent) -> Bool {
     if onKeyEquivalent?(event) == true { return true }
     return super.performKeyEquivalent(with: event)
@@ -1739,7 +1764,9 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     }
   }
   override func layout() {
-    onLayoutWidth?(bounds.width)
+    if abs(bounds.width - lastWidth) > 0.5 {
+      lastWidth = bounds.width; onLayoutWidth?(bounds.width)
+    }
     super.layout()
   }
 }
@@ -2044,12 +2071,11 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     }
     toolbarView.onKeyEquivalent = { [weak self] in self?.handleReaderShortcut($0) ?? false }
     // Shift+Return is an ordinary keyDown, so AppKit need not consult toolbar
-    // key equivalents. Scope interception to this reader before text inputs
-    // consume it as a newline; command shortcuts keep AppKit's normal routing.
+    // key equivalents. Editable and composing responders retain text input.
     refreshKeyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
       let handled = MainActor.assumeIsolated {
-        guard let self, event.window === self.window, event.keyCode == 36,
-              event.modifierFlags.intersection([.command, .option, .shift, .control]) == .shift else { return false }
+        guard let self, event.window === self.window,
+              Self.shouldInterceptRefresh(event: event, firstResponder: self.window?.firstResponder) else { return false }
         self.refreshFromKeyboard()
         return true
       }
@@ -2600,8 +2626,9 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
 
     brandMark.isHidden = false
     outlineToggleButton.isHidden = inPDF && narrow
-    outlineToggleButton.title = availableWidth > 680 ? (outlineToggleButton.toolTip ?? "목차") : ""
-    outlineCompactWidthConstraint?.isActive = availableWidth <= 680
+    let outlineTitle = availableWidth > 680 ? (outlineToggleButton.toolTip ?? "목차") : ""
+    if outlineToggleButton.title != outlineTitle { outlineToggleButton.title = outlineTitle }
+    if let constraint = outlineCompactWidthConstraint, constraint.isActive != (availableWidth <= 680) { constraint.isActive = availableWidth <= 680 }
     modeSegmentSurface.compact = narrow || inPDF
     if offlineBadgeSurface.isHidden != !showOfflineBadge { offlineBadgeSurface.isHidden = !showOfflineBadge }
 
@@ -2789,6 +2816,15 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
     }
     if allowsRefresh { refreshDocument() }
   }
+  static func shouldInterceptRefresh(event: NSEvent, firstResponder: NSResponder?) -> Bool {
+    guard event.keyCode == 36,
+          event.modifierFlags.intersection([.command, .option, .shift, .control]) == .shift else { return false }
+    if let input = firstResponder as? NSTextInputClient, input.hasMarkedText() { return false }
+    if let text = firstResponder as? NSText, text.isFieldEditor { return false }
+    if let text = firstResponder as? NSTextView { return !text.isEditable }
+    if firstResponder is NSTextInputClient { return false }
+    return true
+  }
   func handleReaderShortcut(_ event: NSEvent) -> Bool {
     let flags = event.modifierFlags.intersection([.command, .option, .shift, .control])
     let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
@@ -2821,7 +2857,7 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
       default: break
       }
     }
-    if flags == .shift && event.keyCode == 36 { refreshFromKeyboard(); return true }
+    if Self.shouldInterceptRefresh(event: event, firstResponder: window?.firstResponder) { refreshFromKeyboard(); return true }
     return false
   }
   @objc func refreshDocument() { guard allowsRefresh else { return }; refreshWasHeld = false; requestedMode = nil; requestWasHeld = false; cancelFind(); onRefresh?() }
@@ -3194,8 +3230,11 @@ private final class NativeDesignSearchFieldCell: NSSearchFieldCell {
       return rect.minY <= baseline
     } ?? reader.outline.first
     if outlineDrawer.activeID != active?.id { outlineDrawer.activeID = active?.id }
-    outlineToggleButton.toolTip = active?.displayText ?? "목차"
-    updateToolbarLayout()
+    let title = active?.displayText ?? "목차"
+    if outlineToggleButton.toolTip != title {
+      outlineToggleButton.toolTip = title
+      updateToolbarLayout()
+    }
   }
   @objc func toggleOutlineDrawer() {
     guard currentMode == .nativeReflow, !reader.outline.isEmpty else { return }

@@ -4,7 +4,6 @@ import QuartzCore
 /// Requests are intent only. The thumb follows the mode accepted by the host.
 final class NativeModeMorphSwitch: NSControl {
     enum Mode: Int { case nativeReflow, originalPages }
-    var onRequestMode: ((Mode) -> Void)?
     var displayMode: Mode = .nativeReflow {
         didSet {
             if requestedMode == displayMode { requestedMode = nil }
@@ -13,7 +12,7 @@ final class NativeModeMorphSwitch: NSControl {
     }
     var requestedMode: Mode? { didSet { needsLayout = true } }
     var heldSelection = false { didSet { needsLayout = true } }
-    var compact = false { didSet { invalidateIntrinsicContentSize(); needsLayout = true; updateButtons() } }
+    var compact = false { didSet { guard compact != oldValue else { return }; invalidateIntrinsicContentSize(); needsLayout = true; updateButtons() } }
     var allowsModeSwitch = true {
         didSet {
             if !allowsModeSwitch { pressOrigin = nil; updateThumb(animated: false) }
@@ -51,7 +50,7 @@ final class NativeModeMorphSwitch: NSControl {
             button.setAccessibilityRole(.radioButton); button.setAccessibilityLabel(label); button.toolTip = label
             button.target = self; button.action = selector; addSubview(button)
         }
-        observation = NativeDesignObservation(view: self); updateButtons()
+        observation = NativeDesignObservation(view: self, onChange: { [weak self] in self?.updateButtons() }); updateButtons()
     }
     required init?(coder: NSCoder) { nil }
     private var slot: CGFloat { max(1, (bounds.width - 6) / 2) }
@@ -71,7 +70,6 @@ final class NativeModeMorphSwitch: NSControl {
     }
     override var isEnabled: Bool { didSet { updateButtons(); pressOrigin = nil; dragOffset = 0; needsLayout = true } }
     override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); needsLayout = true; updateButtons() }
-    override func draw(_ dirtyRect: NSRect) { needsLayout = true; updateButtons() }
     override func layout() {
         super.layout()
         let p = NativeAppDesign.palette(preferences), hc = preferences.increasedContrast
@@ -95,7 +93,6 @@ final class NativeModeMorphSwitch: NSControl {
         thumb.shadowPath = shadowPath; contact.shadowPath = shadowPath
         reflowButton.frame = CGRect(x: 3, y: 3, width: slot, height: 26)
         pageButton.frame = CGRect(x: 3 + slot, y: 3, width: slot, height: 26)
-        loading.removeAllAnimations()
         loading.isHidden = requestedMode == nil && !(heldSelection && preferences.reduceMotion)
         let requested = requestedMode ?? displayMode
         loading.frame = CGRect(x: 3 + CGFloat(requested.rawValue) * slot, y: 3, width: slot, height: 26)
@@ -103,12 +100,14 @@ final class NativeModeMorphSwitch: NSControl {
         loading.strokeColor = (heldSelection ? p.warning : p.accent).cgColor
         loading.strokeEnd = preferences.reduceMotion ? 1 : 0.28
         loading.lineDashPattern = preferences.reduceMotion ? [3, 2] : nil
-        if !loading.isHidden && !preferences.reduceMotion {
+        if !loading.isHidden && !preferences.reduceMotion && loading.animation(forKey: "loading") == nil {
             let rotation = CABasicAnimation(keyPath: "transform.rotation.z")
             rotation.fromValue = 0; rotation.toValue = 2 * Double.pi; rotation.duration = 1.1; rotation.repeatCount = .infinity
             loading.add(rotation, forKey: "loading")
+        } else if loading.isHidden || preferences.reduceMotion {
+            loading.removeAnimation(forKey: "loading")
         }
-        CATransaction.commit(); updateButtons()
+        CATransaction.commit()
     }
     private func updateThumb(animated: Bool) {
         let oldX = thumb.presentation()?.position.x ?? thumb.position.x
@@ -132,7 +131,7 @@ final class NativeModeMorphSwitch: NSControl {
             }
             needsLayout = true; return
         }
-        requestedMode = mode; updateThumb(animated: true); onRequestMode?(mode)
+        requestedMode = mode; updateThumb(animated: true)
     }
     override func mouseDown(with event: NSEvent) {
         guard isEnabled, allowsModeSwitch else { return }
