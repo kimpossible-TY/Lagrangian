@@ -1,9 +1,12 @@
 #!/bin/bash
 set -Eeuo pipefail
 cd "$(dirname "$0")/../.."
-source scripts/mac/auto-update-engine.sh
 TEST_DIR=$(mktemp -d "${TMPDIR:-/tmp}/autoupdate-test.XXXXXX")
 trap 'rm -rf "$TEST_DIR"' EXIT
+export HOME="$TEST_DIR/home" LAGRANGIAN_ENGINE_CACHE="$TEST_DIR/engine-cache"
+mkdir -p "$HOME"
+source scripts/mac/auto-update-engine.sh
+SRC="$TEST_DIR/source"; APP="$TEST_DIR/app"; LOGIN_PLIST="$TEST_DIR/login.plist"
 # Cache preflight runs before install. Keep it off the Developer SSD so the
 # boot-volume device check stays out of these fixtures.
 case "$TEST_DIR" in
@@ -17,12 +20,14 @@ ATTEMPTS="$TEST_DIR/update-attempts"
 EVENTS="$TEST_DIR/events"
 printf '100\n' > "$STATE"
 : > "$EVENTS"
-RUNNING=''; SUCCESS=100; WATCH_RESULT=0; LIST_ERROR=0
+RUNNING=''; QUEUED=''; SUCCESS=100; WATCH_RESULT=0; LIST_ERROR=0
 gh() {
   if [[ "$1 $2" == 'run list' ]]; then
     (( LIST_ERROR == 0 )) || return 1
+    [[ ! ( "${FAIL_STATUS:-}" == queued && " $* " == *' -s queued '* ) ]] || return 1
     case " $* " in
       *' -s in_progress '*) printf '%s\n' "$RUNNING" ;;
+      *' -s queued '*) printf '%s\n' "$QUEUED" ;;
       *' -s success '*) printf '%s\n' "$SUCCESS" ;;
       *) return 1 ;;
     esac
@@ -50,14 +55,49 @@ expect() {
   : > "$EVENTS"
 }
 watch_iteration; expect ''; [[ "$NEXT_DELAY" == 60 ]]
+# Select the newest active run, including queued runs, and fail closed.
+QUEUED=104; RUNNING=102; SUCCESS=101
+watch_iteration; expect 'watch 104'; [[ "$NEXT_DELAY" == 0 ]]
+watch_iteration; expect ''; [[ "$NEXT_DELAY" == 5 ]]
+FAIL_STATUS=queued
+watch_iteration; expect ''; [[ "$NEXT_DELAY" == 60 ]]
+FAIL_STATUS=''
+QUEUED=bad
+watch_iteration; expect ''; [[ "$NEXT_DELAY" == 60 ]]
+QUEUED=''; LAST_WATCHED=''
 RUNNING=102; SUCCESS=101
 watch_iteration; expect 'watch 102'; [[ "$NEXT_DELAY" == 0 ]]
 watch_iteration; expect ''; [[ "$NEXT_DELAY" == 5 ]]
+# Active listing can clear before the success listing catches up.
+RUNNING=''; SUCCESS=101
+watch_iteration; expect ''; [[ "$NEXT_DELAY" == 5 ]]
+SUCCESS=102
+watch_iteration; expect 'install 102'; [[ "$NEXT_DELAY" == 0 && -z "$LAST_WATCHED" && "$LAST_WATCHED_WAIT" == 0 ]]
+printf '101\n' > "$STATE"
+RUNNING=103; SUCCESS=102
+watch_iteration; expect 'watch 103'
+RUNNING=''; SUCCESS=102
+for retry in 1 2 3 4 5 6; do
+  watch_iteration; expect ''; [[ "$NEXT_DELAY" == 5 && "$LAST_WATCHED_WAIT" == "$retry" ]]
+done
+watch_iteration; expect 'install 102'; [[ -z "$LAST_WATCHED" && "$LAST_WATCHED_WAIT" == 0 && "$NEXT_DELAY" == 0 ]]
+# A stale active listing must not cause the capped watch to start again.
+for active_status in RUNNING QUEUED; do
+  printf '101\n' > "$STATE"
+  RUNNING=''; QUEUED=''; SUCCESS=102
+  printf -v "$active_status" '%s' 103
+  watch_iteration; expect 'watch 103'
+  for retry in 1 2 3 4 5 6; do
+    watch_iteration; expect ''; [[ "$NEXT_DELAY" == 5 && "$LAST_WATCHED_WAIT" == "$retry" ]]
+  done
+  watch_iteration; expect 'install 102'; [[ -z "$LAST_WATCHED" && "$LAST_WATCHED_WAIT" == 0 && "$NEXT_DELAY" == 0 ]]
+done
+QUEUED=''
 # A newer run arriving during watch supersedes the successful watched run.
 RUNNING=103; SUCCESS=102
 watch_iteration; expect 'watch 103'
 RUNNING=''; SUCCESS=103
-watch_iteration; expect 'install 103'
+watch_iteration; expect 'install 103'; [[ "$NEXT_DELAY" == 0 ]]
 watch_iteration; expect ''
 RUNNING=104; WATCH_RESULT=1
 watch_iteration; expect 'watch 104'; [[ "$NEXT_DELAY" == 60 ]]
@@ -115,6 +155,13 @@ eval "$saved_begin_attempt"
 eval "$saved_notify"
 eval "$saved_stage"
 install_run() { printf 'install %s\n' "$1" >> "$EVENTS"; printf '%s\n' "$1" > "$STATE"; }
+# Return codes distinguish a completed install from holds and superseding.
+for code in 0 74 75 76 77; do
+  install_run() { return "$code"; }
+  SUCCESS=$((300 + code)); LAST_CLAIM_ERROR=''
+  watch_iteration; expect ''
+  case "$code" in 0|77) [[ "$NEXT_DELAY" == 0 ]] ;; *) [[ "$NEXT_DELAY" == 60 ]] ;; esac
+done
 printf 'auto-update watch regression passed\n'
 
 # Real install_run through watch_iteration. The gh stub fails `gh run view`,
@@ -175,6 +222,216 @@ SRC="$saved_src"
 APP="$saved_app"
 LOGIN_PLIST="$saved_login_plist"
 printf 'auto-update install failure leaves the marker unchanged\n'
+
+# Exercise actual interruptible commands in an isolated fake worktree.
+(
+  eval "$saved_install_run"
+  export FIXTURE="$TEST_DIR/interrupt" LAGRANGIAN_SUPERSEDE_POLL_SECONDS=0.1
+  mkdir -p "$FIXTURE" "$FIXTURE/cache" "$FIXTURE/app"
+  STATE="$FIXTURE/installed"; STATUS="$FIXTURE/status"; ATTEMPTS="$FIXTURE/attempts"
+  HOME="$FIXTURE/home"; APP="$FIXTURE/app"; SRC="$FIXTURE/source"; LOGIN_PLIST="$FIXTURE/login.plist"; ENGINE_CACHE_CONFIGURED="$FIXTURE/cache"
+  mkdir -p "$HOME"
+  printf '10\n' > "$STATE"; printf 'untouched\n' > "$APP/sentinel"
+  printf '20\n' > "$FIXTURE/success"
+  cat > "$FIXTURE/flow-app.py" <<'PYCODE'
+import os,signal,subprocess,sys,time
+from pathlib import Path
+root=Path(os.environ['FIXTURE']); command=sys.argv[1]
+if command=='fetch-engine':
+    if (root/'discover-race').exists():
+        child=subprocess.Popen(['/bin/sleep','60'])
+        (root/'race-child').write_text(str(child.pid))
+        (root/'race-parent').write_text(str(os.getpid()))
+        while not (root/'race-release').exists(): time.sleep(0.01)
+        sys.exit(int(os.environ.get('RACE_EXIT', '9')))
+    if (root/'fail').exists(): sys.exit(int((root/'fail').read_text()))
+    child=subprocess.Popen([sys.executable,'-c','import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'], start_new_session=True)
+    def on_term(*args):
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        late=subprocess.Popen([sys.executable,'-c','import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'])
+        (root/'late-pid').write_text(str(late.pid))
+        (root/'cleanup-exit').write_text('1')
+        time.sleep(0.3)
+        sys.exit(1)
+    signal.signal(signal.SIGTERM, on_term)
+    (root/'child-pid').write_text(str(os.getpid()))
+    (root/'descendant-pid').write_text(str(child.pid))
+    while True: time.sleep(1)
+print('/fixture/result')
+PYCODE
+  gh() {
+    case "$1 $2" in
+      'run view') printf 'fake-sha\n' ;;
+      'run list')
+        case " $* " in
+          *' -s success '*)
+            if [[ -e "$FIXTURE/discover-race" ]]; then
+              while [[ ! -s "$FIXTURE/race-parent" ]]; do /bin/sleep 0.01; done
+            fi
+            if [[ -e "$FIXTURE/gh-hang" ]]; then printf 'hang\n' >> "$FIXTURE/polls"; /bin/sleep 30; fi
+            if [[ -e "$FIXTURE/gh-error" ]]; then
+              rm -f "$FIXTURE/gh-error"; printf 'error\n' >> "$FIXTURE/polls"; return 1
+            fi
+            printf 'ok\n' >> "$FIXTURE/polls"; cat "$FIXTURE/success" ;;
+          *) printf '\n' ;;
+        esac ;;
+      *) return 1 ;;
+    esac
+  }
+  git() {
+    case " $* " in
+      *' worktree add '*) mkdir -p "$WT/scripts"; cp "$FIXTURE/flow-app.py" "$WT/scripts/flow-app.py" ;;
+      *' worktree remove '*)
+        if [[ -e "$FIXTURE/discover-race" && -e "$WT/superseded-run" ]]; then touch "$FIXTURE/race-marker-seen"; fi
+        rm -rf "$WT" ;;
+    esac
+  }
+  notify() { :; }
+  # A failed lookup alone must not interrupt a step that later succeeds.
+  WT="$FIXTURE"; id=20; CUR=download
+  touch "$FIXTURE/gh-error"
+  run_interruptible_step 20 "$FIXTURE/step-output" /bin/sleep 0.4
+  grep -q '^error$' "$FIXTURE/polls"
+  [[ ! -e "$FIXTURE/superseded-run" ]]
+  # A stuck lookup must be cancelled when the step completes.
+  touch "$FIXTURE/gh-hang"
+  start=$SECONDS
+  run_interruptible_step 20 "$FIXTURE/step-output" /bin/sleep 0.4
+  (( SECONDS - start < 5 ))
+  rm "$FIXTURE/gh-hang"
+  # A failure while gh is blocked is returned immediately, with no marker.
+  : > "$FIXTURE/polls"; touch "$FIXTURE/gh-hang"
+  rc=0
+  run_interruptible_step 20 "$FIXTURE/step-output" bash -c 'sleep 0.4; exit 9' || rc=$?
+  [[ "$rc" == 9 && ! -e "$FIXTURE/superseded-run" ]]
+  grep -q '^hang$' "$FIXTURE/polls"
+  rm "$FIXTURE/gh-hang"
+  # Even a failed snapshot must terminate the entire step process group.
+  mkdir -p "$FIXTURE/bin"
+  printf '#!/bin/bash\nexit 1\n' > "$FIXTURE/bin/ps"
+  chmod +x "$FIXTURE/bin/ps"
+  saved_path="$PATH"; export PATH="$FIXTURE/bin:$PATH"
+  printf '21\n' > "$FIXTURE/success"
+  rc=0
+  ( supersede_run() { exit 77; }; run_interruptible_step 20 "$FIXTURE/step-output" bash -c '/bin/sleep 30 & echo $! > "$FIXTURE/ps-failure-child"; echo $$ > "$FIXTURE/ps-failure-pid"; wait' ) || rc=$?
+  export PATH="$saved_path"
+  [[ "$rc" == 77 ]]
+  for pidfile in ps-failure-pid ps-failure-child; do
+    pid=$(cat "$FIXTURE/$pidfile")
+    if kill -0 "$pid" 2>/dev/null && [[ "$(ps -o stat= -p "$pid")" != Z* ]]; then
+      echo "surviving process $pid" >&2; exit 1
+    fi
+  done
+  printf '20\n' > "$FIXTURE/success"
+  : > "$FIXTURE/polls"
+  # Capture the process tree, then let the step fail before ps returns it.
+  cat > "$FIXTURE/bin/ps" <<'EOF'
+#!/bin/bash
+/bin/ps "$@" > "$FIXTURE/race-snapshot"
+touch "$FIXTURE/race-release"
+pid=$(cat "$FIXTURE/race-parent")
+while kill -0 "$pid" 2>/dev/null; do
+  state=$(/bin/ps -o stat= -p "$pid" 2>/dev/null || :)
+  [[ -z "$state" || "$state" == Z* ]] && break
+  /bin/sleep 0.01
+done
+cat "$FIXTURE/race-snapshot"
+EOF
+  chmod +x "$FIXTURE/bin/ps"
+  touch "$FIXTURE/discover-race"
+  printf '21\n' > "$FIXTURE/success"
+  mkdir -p "$FIXTURE/python"
+  cat > "$FIXTURE/python/sitecustomize.py" <<'PYCODE'
+import os, sys
+from pathlib import Path
+if sys.argv[0] == '-' and os.environ.get('INJECT_GONE_ERROR') == '1':
+    original_killpg = os.killpg
+    def killpg(pid, sig):
+        if sig == 0:
+            Path(os.environ['FIXTURE'], 'gone-error-injected').touch()
+            raise OSError('injected cleanup confirmation failure')
+        return original_killpg(pid, sig)
+    os.killpg = killpg
+PYCODE
+  for inject_error in 0 1; do
+    rm -f "$FIXTURE/race-release" "$FIXTURE/race-parent" "$FIXTURE/race-child" "$FIXTURE/race-marker-seen"
+    rm -rf "$ATTEMPTS/20"
+    export PATH="$FIXTURE/bin:$saved_path" PYTHONPATH="$FIXTURE/python" INJECT_GONE_ERROR="$inject_error"
+    rc=0; set +e; install_run 20; rc=$?; set -e
+    export PATH="$saved_path"
+    unset PYTHONPATH INJECT_GONE_ERROR
+    [[ "$rc" == 9 && ! -e "$FIXTURE/race-marker-seen" ]]
+    [[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["state"])' "$ATTEMPTS/20/state.json")" == failed ]]
+    pid=$(cat "$FIXTURE/race-child")
+    if kill -0 "$pid" 2>/dev/null && [[ "$(ps -o stat= -p "$pid")" != Z* ]]; then
+      echo "surviving process $pid" >&2; exit 1
+    fi
+  done
+  [[ -e "$FIXTURE/gone-error-injected" ]]
+  # A successful step cannot make an unconfirmed cleanup look successful.
+  rm -f "$FIXTURE/race-release" "$FIXTURE/race-parent" "$FIXTURE/race-child" "$FIXTURE/race-marker-seen" "$FIXTURE/gone-error-injected"
+  rm -rf "$ATTEMPTS/20"
+  export PATH="$FIXTURE/bin:$saved_path" PYTHONPATH="$FIXTURE/python" INJECT_GONE_ERROR=1 RACE_EXIT=0
+  rc=0; set +e; install_run 20; rc=$?; set -e
+  export PATH="$saved_path"
+  unset PYTHONPATH INJECT_GONE_ERROR RACE_EXIT
+  [[ "$rc" == 1 && -e "$FIXTURE/gone-error-injected" && ! -e "$FIXTURE/race-marker-seen" ]]
+  [[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["state"])' "$ATTEMPTS/20/state.json")" == failed ]]
+  pid=$(cat "$FIXTURE/race-child")
+  if kill -0 "$pid" 2>/dev/null && [[ "$(ps -o stat= -p "$pid")" != Z* ]]; then
+    echo "surviving process $pid" >&2; exit 1
+  fi
+  rm -f "$FIXTURE/discover-race"
+  rm -rf "$ATTEMPTS/20"
+  printf '20\n' > "$FIXTURE/success"
+  # Polling must survive an API error before detecting the newer run.
+  touch "$FIXTURE/gh-error"
+  (
+    while [[ ! -s "$FIXTURE/descendant-pid" ]] || ! grep -q '^error$' "$FIXTURE/polls" 2>/dev/null; do /bin/sleep 0.05; done
+    printf '21\n' > "$FIXTURE/success"
+  ) & trigger=$!
+  rc=0; set +e; install_run 20; rc=$?; set -e
+  wait "$trigger"
+  [[ "$rc" == 77 && "$(cat "$STATE")" == 10 && "$(cat "$APP/sentinel")" == untouched ]]
+  [[ "$(cat "$FIXTURE/cleanup-exit")" == 1 ]]
+  [[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["state"])' "$ATTEMPTS/20/state.json")" == superseded ]]
+  [[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["state"])' "$STATUS")" == superseded ]]
+  for pidfile in child-pid descendant-pid late-pid; do
+    pid=$(cat "$FIXTURE/$pidfile")
+    if kill -0 "$pid" 2>/dev/null && [[ "$(ps -o stat= -p "$pid")" != Z* ]]; then
+      echo "surviving process $pid" >&2; exit 1
+    fi
+  done
+  # A superseded result requests immediate selection of the newer success.
+  install_run() { printf '%s\n' "$1" >> "$FIXTURE/installed-runs"; [[ "$1" != 20 ]] || return 77; }
+  printf '20\n' > "$FIXTURE/success"; rm -rf "$ATTEMPTS/20"
+  watch_iteration; [[ "$NEXT_DELAY" == 0 ]]
+  printf '21\n' > "$FIXTURE/success"
+  watch_iteration; [[ "$NEXT_DELAY" == 0 ]]
+  [[ "$(cat "$FIXTURE/installed-runs")" == "$(printf '20\n21')" ]]
+  # A real step failure invokes failed(), rather than being treated as stale.
+  eval "$saved_install_run"
+  printf '9\n' > "$FIXTURE/fail"
+  printf '22\n' > "$FIXTURE/success"
+  rc=0; set +e; install_run 22; rc=$?; set -e
+  [[ "$rc" == 9 && "$(cat "$STATE")" == 10 ]]
+  [[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["state"])' "$ATTEMPTS/22/state.json")" == failed ]]
+  # Actual command failures cannot masquerade as any reserved control result.
+  for code in 74 75 76 77; do
+    run=$((400 + code)); printf '%s\n' "$code" > "$FIXTURE/fail"
+    printf '%s\n' "$run" > "$FIXTURE/success"
+    rc=0; set +e; (watch_iteration); rc=$?; set -e
+    [[ "$rc" != 0 && "$rc" != 74 && "$rc" != 75 && "$rc" != 76 && "$rc" != 77 ]]
+    python3 - "$ATTEMPTS/$run/state.json" "$STATUS" "$code" <<'PYCODE'
+import json,sys
+attempt,status=map(lambda p: json.load(open(p)),sys.argv[1:3])
+assert attempt['state']=='failed' and attempt['phase']=='download'
+assert 'exit '+sys.argv[3]+' ' in attempt['message']
+assert status['state']=='failed' and status['current']=='download'
+PYCODE
+  done
+)
+printf 'auto-update superseding and failure checks passed\n'
 
 rc=0
 begin_attempt 9001 || rc=$?

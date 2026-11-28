@@ -112,6 +112,9 @@ failed() {
   stage "$CUR" failed "exit $code at updater line $line" || true
   echo "$(date) install of run $id FAILED at $CUR (exit $code, line $line)"
   notify "빌드 $id 설치 실패 (로그 확인)"
+  # These statuses belong exclusively to install_run's control paths.
+  # Keep the original command status in the recorded failure above.
+  case "$code" in 74|75|76|77) code=1 ;; esac
   exit "$code"
 }
 # One lsof txt block must list both this file's inode and its path.
@@ -373,6 +376,153 @@ restart_login_agent() {
   login_restart_failed "$uid" "$plist" || true
   return 1
 }
+# Failed or malformed lookups are deliberately inconclusive during an active step.
+newer_success_run() {
+  local current="$1" latest
+  latest=$(gh run list -R "$REPO" -w flow-engine.yml -b main -s success -L 1 --json databaseId -q '.[] | .databaseId') || return 1
+  [[ "$latest" =~ ^[0-9]+$ ]] || return 1
+  (( 10#$latest > 10#$current )) || return 1
+  printf '%s\n' "$latest"
+}
+supersede_run() {
+  local newer="$1"
+  trap - ERR
+  record_attempt "$CUR" superseded "Newer successful run $newer"
+  stage "$CUR" superseded "Newer successful run $newer"
+  echo "$(date) run $id superseded by $newer"
+  exit 77
+}
+check_superseded() {
+  local newer
+  if newer=$(newer_success_run "$1"); then supersede_run "$newer"; fi
+}
+# The supervisor is the step's direct parent and owns the entire cancellation.
+run_interruptible_step() {
+  local current="$1" output="$2" rc=0 marker="$WT/superseded-run" shell_function=0
+  shift 2
+  rm -f "$marker"
+  if declare -F "$1" >/dev/null; then shell_function=1; export -f "$1"; export APP; fi
+  if declare -F gh >/dev/null; then export -f gh; fi
+  export -f newer_success_run
+  export REPO
+  python3 - "$current" "$output" "$marker" "$shell_function" "$@" <<'PYCODE' || rc=$?
+import os, signal, subprocess, sys, tempfile, time
+from pathlib import Path
+
+current, output, marker, shell_function = sys.argv[1:5]
+command = sys.argv[5:]
+if shell_function == '1': command = ['bash', '-c', '"$@"', 'updater-step', *command]
+interval = float(os.environ.get('LAGRANGIAN_SUPERSEDE_POLL_SECONDS', '30'))
+with open(output, 'w') as out:
+    proc = subprocess.Popen(command, start_new_session=True, stdout=out)
+
+def result():
+    code = proc.returncode
+    return code if code >= 0 else 128 - code
+
+def signal_group(pid, sig):
+    try: os.killpg(pid, sig)
+    except ProcessLookupError: pass
+
+def stop_query(query):
+    signal_group(query.pid, signal.SIGKILL)
+    query.wait(timeout=2)
+
+def query_newer():
+    with tempfile.TemporaryFile(mode='w+') as out:
+        query = subprocess.Popen(['bash', '-c', 'newer_success_run "$1"', '_', current],
+                                 stdout=out, stderr=subprocess.DEVNULL, start_new_session=True)
+        deadline = time.monotonic() + 15
+        while query.poll() is None:
+            if proc.poll() is not None or time.monotonic() >= deadline:
+                stop_query(query)
+                return None
+            time.sleep(0.1)
+        if query.returncode != 0: return None
+        out.seek(0)
+        value = out.read().strip()
+        return value or None
+
+known = {proc.pid}
+def discover():
+    try:
+        lines = subprocess.check_output(['ps', '-A', '-o', 'pid=,ppid=,pgid='], text=True, timeout=2).splitlines()
+    except (OSError, subprocess.SubprocessError) as exc:
+        print('process discovery failed:', exc, file=sys.stderr)
+        return
+    pairs = [tuple(map(int, line.split())) for line in lines if len(line.split()) == 3]
+    changed = True
+    while changed:
+        added = {pid for pid, ppid, pgid in pairs if ppid in known or pgid == proc.pid} - known
+        changed = bool(added)
+        known.update(added)
+
+def send(sig):
+    proc.poll()
+    signal_group(proc.pid, sig)
+    for pid in known:
+        try: os.kill(pid, sig)
+        except ProcessLookupError: pass
+
+def gone():
+    proc.poll()  # reap the direct child before checking its process group
+    for pid in known:
+        try: os.kill(pid, 0)
+        except ProcessLookupError: continue
+        return False
+    try: os.killpg(proc.pid, 0)
+    except ProcessLookupError: return True
+    return False
+
+while True:
+    deadline = time.monotonic() + max(0, interval)
+    while time.monotonic() < deadline:
+        if proc.poll() is not None: sys.exit(result())
+        time.sleep(min(0.1, max(0, deadline - time.monotonic())))
+    if proc.poll() is not None: sys.exit(result())
+    newer = query_newer()
+    if proc.poll() is not None: sys.exit(result())
+    if newer is None: continue
+    completed = None
+    try:
+        discover()
+        completed = proc.poll()
+        if completed is None:
+            Path(marker).write_text(newer + '\n')
+        send(signal.SIGTERM)
+        deadline = time.monotonic() + 1
+        while time.monotonic() < deadline:
+            discover()
+            send(signal.SIGTERM)
+            time.sleep(0.05)
+        discover()
+        send(signal.SIGKILL)
+        proc.wait(timeout=2)
+        deadline = time.monotonic() + 2
+        while not gone():
+            if time.monotonic() >= deadline: raise TimeoutError('step processes did not exit')
+            time.sleep(0.05)
+    except (OSError, subprocess.SubprocessError, TimeoutError) as exc:
+        print('supervisor cleanup failed:', exc, file=sys.stderr)
+        try:
+            send(signal.SIGKILL)
+            proc.wait(timeout=2)
+        except (OSError, subprocess.SubprocessError) as cleanup_exc:
+            print('supervisor cleanup retry failed:', cleanup_exc, file=sys.stderr)
+        try: Path(marker).unlink(missing_ok=True)
+        except OSError as marker_exc:
+            print('supervisor marker removal failed:', marker_exc, file=sys.stderr)
+        # Preserve a failed step's status, but never report success when
+        # cleanup or confirmation failed.
+        sys.exit(result() if completed not in (None, 0) else 1)
+    sys.exit(77 if completed is None else result())
+PYCODE
+  if [[ "$rc" == 77 && -s "$marker" ]]; then
+    supersede_run "$(cat "$marker")"
+  fi
+  return "$rc"
+}
+
 install_run() (
 # The parent clears errexit only while it captures this status. Turn it back
 # on so a failed command still runs the ERR trap instead of continuing.
@@ -382,7 +532,7 @@ local id="$1" cache claim_rc=0
 # runs failed() twice; reuse this path for fetch-engine --dest.
 if ! cache=$(engine_cache_root); then
   echo "$(date) engine cache is unavailable; skipping the claim for run $id and retrying later"
-  return 0
+  return 74
 fi
 # This conditional wraps only the claim helper, not install_run: ERR/errexit
 # must remain enabled for every actual installation/verification command.
@@ -390,7 +540,7 @@ fi
 begin_attempt "$id" || claim_rc=$?
 if [[ "$claim_rc" == 75 ]]; then
   echo "$(date) run $id already attempted; automatic reinstall blocked (inspect update-attempts)"
-  return 0
+  return 75
 fi
 if [[ "$claim_rc" != 0 ]]; then
   # The parent dedupes the notification. This subshell cannot remember LAST_*.
@@ -412,11 +562,16 @@ cleanup_wt() { git -C "$SRC" worktree remove --force "$WT" 2>/dev/null || rm -rf
 trap cleanup_wt EXIT
 cd "$WT"
 stage download running
-engine=$(python3 scripts/flow-app.py fetch-engine --run-id "$id" --dest "$cache/$id")
-reader=$(python3 scripts/fetch-reader-bundle.py --run-id "$id")
+run_interruptible_step "$id" "$WT/engine-output" python3 scripts/flow-app.py fetch-engine --run-id "$id" --dest "$cache/$id"
+engine=$(cat "$WT/engine-output")
+run_interruptible_step "$id" "$WT/reader-output" python3 scripts/fetch-reader-bundle.py --run-id "$id"
+reader=$(cat "$WT/reader-output")
 echo "$(date) run $id sha $sha reader bundle $reader"
+check_superseded "$id"
 stage download done; CUR=package; stage package running
-app=$(python3 scripts/flow-app.py build --engine "$engine" | tail -1)
+run_interruptible_step "$id" "$WT/build-output" python3 scripts/flow-app.py build --engine "$engine"
+app=$(tail -1 "$WT/build-output")
+check_superseded "$id"
 verify_services snapshot
 python3 scripts/flow-app.py install "$app"
 python3 scripts/flow-app.py verify "$APP" >/dev/null
@@ -455,10 +610,14 @@ notify "빌드 $id 설치 완료"
 # One iteration returns immediately after a successful watch so selection is
 # refreshed before installation. Errors and idle iterations use the normal delay.
 watch_iteration() {
-  local running success installed rc id
+  local running queued success installed rc id
   NEXT_DELAY=60
   if ! running=$(gh run list -R "$REPO" -w flow-engine.yml -b main -s in_progress -L 1 --json databaseId -q '.[] | .databaseId'); then
     echo "$(date) could not look up in-progress runs; retrying"
+    return
+  fi
+  if ! queued=$(gh run list -R "$REPO" -w flow-engine.yml -b main -s queued -L 1 --json databaseId -q '.[] | .databaseId'); then
+    echo "$(date) could not look up queued runs; retrying"
     return
   fi
   if ! success=$(gh run list -R "$REPO" -w flow-engine.yml -b main -s success -L 1 --json databaseId -q '.[] | .databaseId'); then
@@ -467,27 +626,38 @@ watch_iteration() {
   fi
   installed=$(cat "$STATE" 2>/dev/null || true)
   # Reject malformed responses rather than risking an unintended install.
-  if [[ ( -n "$running" && ! "$running" =~ ^[0-9]+$ ) || ( -n "$success" && ! "$success" =~ ^[0-9]+$ ) || ( -n "$installed" && ! "$installed" =~ ^[0-9]+$ ) ]]; then
+  if [[ ( -n "$running" && ! "$running" =~ ^[0-9]+$ ) || ( -n "$queued" && ! "$queued" =~ ^[0-9]+$ ) || ( -n "$success" && ! "$success" =~ ^[0-9]+$ ) || ( -n "$installed" && ! "$installed" =~ ^[0-9]+$ ) ]]; then
     echo "$(date) invalid run ID or installed marker; retrying"
     return
   fi
-  running=${running:-0}; success=${success:-0}; installed=${installed:-0}
-  if (( running > installed && running > success )); then
-    # The list endpoint may briefly lag behind a completed watch.
-    if [[ "${LAST_WATCHED:-}" == "$running" ]]; then
+  running=$((10#${running:-0})); queued=$((10#${queued:-0}))
+  success=$((10#${success:-0})); installed=$((10#${installed:-0}))
+  if (( queued > running )); then running="$queued"; fi
+  if [[ -n "${LAST_WATCHED:-}" ]] && (( LAST_WATCHED > success && LAST_WATCHED > installed && running <= LAST_WATCHED )); then
+    if (( ${LAST_WATCHED_WAIT:-0} < 6 )); then
+      LAST_WATCHED_WAIT=$((${LAST_WATCHED_WAIT:-0} + 1))
       NEXT_DELAY=5
       return
     fi
+    # A stale active listing must not immediately restart the same watch and
+    # reset the retry budget before the older success can be considered.
+    if (( running == LAST_WATCHED )); then running=0; fi
+    LAST_WATCHED=""; LAST_WATCHED_WAIT=0
+  elif [[ -n "${LAST_WATCHED:-}" ]] && (( LAST_WATCHED <= success || LAST_WATCHED <= installed )); then
+    LAST_WATCHED=""; LAST_WATCHED_WAIT=0
+  fi
+  if (( running > installed && running > success )); then
     echo "$(date) watching run $running"
     if gh run watch "$running" -R "$REPO" --exit-status; then
       echo "$(date) run $running succeeded; checking for newer runs"
       LAST_WATCHED="$running"
+      LAST_WATCHED_WAIT=0
       NEXT_DELAY=0
     else
       echo "$(date) watch for run $running failed or run did not succeed; retrying detection"
     fi
   elif (( success > installed )); then
-    LAST_WATCHED=""
+    LAST_WATCHED=""; LAST_WATCHED_WAIT=0
     if [[ -e "$ATTEMPTS/$success" || -L "$ATTEMPTS/$success" ]]; then
       # Keep the failure and its last phase visible. Do not reset pipeline status,
       # show another notification, or retry package replacement automatically.
@@ -518,14 +688,11 @@ watch_iteration() {
       NEXT_DELAY=60
       return 0
     fi
-    if [[ "$rc" != 0 ]]; then
-      return "$rc"
-    fi
-    # 60s when install_run returns 0, including an immediate claim hold
-    # (exit 75) and a cache preflight miss. Catch-up of a still-newer
-    # successful run waits out this delay.
-    # A successful gh run watch above leaves NEXT_DELAY at 0.
-    NEXT_DELAY=60
+    case "$rc" in
+      0|77) NEXT_DELAY=0 ;;
+      74|75) NEXT_DELAY=60 ;;
+      *) return "$rc" ;;
+    esac
   fi
 }
 
