@@ -373,6 +373,84 @@ restart_login_agent() {
   login_restart_failed "$uid" "$plist" || true
   return 1
 }
+# Failed or malformed lookups are deliberately inconclusive during an active step.
+newer_success_run() {
+  local current="$1" latest
+  latest=$(gh run list -R "$REPO" -w flow-engine.yml -b main -s success -L 1 --json databaseId -q '.[] | .databaseId') || return 1
+  [[ "$latest" =~ ^[0-9]+$ ]] || return 1
+  (( 10#$latest > 10#$current )) || return 1
+  printf '%s\n' "$latest"
+}
+supersede_run() {
+  local newer="$1"
+  trap - ERR
+  record_attempt "$CUR" superseded "Newer successful run $newer"
+  stage "$CUR" superseded "Newer successful run $newer"
+  echo "$(date) run $id superseded by $newer"
+  exit 77
+}
+check_superseded() {
+  local newer
+  if newer=$(newer_success_run "$1"); then supersede_run "$newer"; fi
+}
+# The monitor owns only the child tree. The parent waits for both processes
+# before inspecting its result, so no monitor can outlive this step.
+run_interruptible_step() {
+  local current="$1" output="$2" child monitor rc=0 marker="$WT/superseded-run"
+  shift 2
+  rm -f "$marker"
+  "$@" >"$output" &
+  child=$!
+  (
+    trap - ERR EXIT
+    timer=
+    trap '[[ -z "$timer" ]] || kill "$timer" 2>/dev/null; exit 0' TERM
+    while kill -0 "$child" 2>/dev/null; do
+      sleep "${LAGRANGIAN_SUPERSEDE_POLL_SECONDS:-30}" &
+      timer=$!
+      wait "$timer" || exit 0
+      timer=
+      kill -0 "$child" 2>/dev/null || break
+      if newer=$(newer_success_run "$current"); then
+        printf '%s\n' "$newer" > "$marker"
+        # Snapshot descendants before signalling, deepest first. Keep the IDs
+        # for the KILL pass even if their parents have already exited.
+        python3 - "$child" <<'PYCODE'
+import os,signal,subprocess,sys,time
+root=int(sys.argv[1])
+rows=subprocess.check_output(['ps','-axo','pid=,ppid='],text=True).splitlines()
+children={}
+for row in rows:
+    fields=row.split()
+    if len(fields)==2:
+        pid,parent=map(int,fields); children.setdefault(parent,[]).append(pid)
+def descendants(pid):
+    result=[]
+    for child in children.get(pid,[]): result.extend(descendants(child)); result.append(child)
+    return result
+pids=descendants(root)+[root]
+for sig in (signal.SIGTERM,signal.SIGKILL):
+    for pid in pids:
+        try: os.kill(pid,sig)
+        except ProcessLookupError: pass
+    if sig==signal.SIGTERM: time.sleep(1)
+PYCODE
+        break
+      fi
+    done
+  ) &
+  monitor=$!
+  wait "$child" || rc=$?
+  # A monitor that has detected a newer run must finish terminating the tree.
+  if [[ -s "$marker" ]]; then
+    wait "$monitor" || true
+  else
+    kill "$monitor" 2>/dev/null || true
+    wait "$monitor" 2>/dev/null || true
+  fi
+  if [[ -s "$marker" ]]; then supersede_run "$(cat "$marker")"; fi
+  return "$rc"
+}
 install_run() (
 # The parent clears errexit only while it captures this status. Turn it back
 # on so a failed command still runs the ERR trap instead of continuing.
@@ -382,7 +460,7 @@ local id="$1" cache claim_rc=0
 # runs failed() twice; reuse this path for fetch-engine --dest.
 if ! cache=$(engine_cache_root); then
   echo "$(date) engine cache is unavailable; skipping the claim for run $id and retrying later"
-  return 0
+  return 74
 fi
 # This conditional wraps only the claim helper, not install_run: ERR/errexit
 # must remain enabled for every actual installation/verification command.
@@ -390,7 +468,7 @@ fi
 begin_attempt "$id" || claim_rc=$?
 if [[ "$claim_rc" == 75 ]]; then
   echo "$(date) run $id already attempted; automatic reinstall blocked (inspect update-attempts)"
-  return 0
+  return 75
 fi
 if [[ "$claim_rc" != 0 ]]; then
   # The parent dedupes the notification. This subshell cannot remember LAST_*.
@@ -412,11 +490,16 @@ cleanup_wt() { git -C "$SRC" worktree remove --force "$WT" 2>/dev/null || rm -rf
 trap cleanup_wt EXIT
 cd "$WT"
 stage download running
-engine=$(python3 scripts/flow-app.py fetch-engine --run-id "$id" --dest "$cache/$id")
-reader=$(python3 scripts/fetch-reader-bundle.py --run-id "$id")
+run_interruptible_step "$id" "$WT/engine-output" python3 scripts/flow-app.py fetch-engine --run-id "$id" --dest "$cache/$id"
+engine=$(cat "$WT/engine-output")
+run_interruptible_step "$id" "$WT/reader-output" python3 scripts/fetch-reader-bundle.py --run-id "$id"
+reader=$(cat "$WT/reader-output")
 echo "$(date) run $id sha $sha reader bundle $reader"
+check_superseded "$id"
 stage download done; CUR=package; stage package running
-app=$(python3 scripts/flow-app.py build --engine "$engine" | tail -1)
+run_interruptible_step "$id" "$WT/build-output" python3 scripts/flow-app.py build --engine "$engine"
+app=$(tail -1 "$WT/build-output")
+check_superseded "$id"
 verify_services snapshot
 python3 scripts/flow-app.py install "$app"
 python3 scripts/flow-app.py verify "$APP" >/dev/null
@@ -455,10 +538,14 @@ notify "빌드 $id 설치 완료"
 # One iteration returns immediately after a successful watch so selection is
 # refreshed before installation. Errors and idle iterations use the normal delay.
 watch_iteration() {
-  local running success installed rc id
+  local running queued success installed rc id
   NEXT_DELAY=60
   if ! running=$(gh run list -R "$REPO" -w flow-engine.yml -b main -s in_progress -L 1 --json databaseId -q '.[] | .databaseId'); then
     echo "$(date) could not look up in-progress runs; retrying"
+    return
+  fi
+  if ! queued=$(gh run list -R "$REPO" -w flow-engine.yml -b main -s queued -L 1 --json databaseId -q '.[] | .databaseId'); then
+    echo "$(date) could not look up queued runs; retrying"
     return
   fi
   if ! success=$(gh run list -R "$REPO" -w flow-engine.yml -b main -s success -L 1 --json databaseId -q '.[] | .databaseId'); then
@@ -467,11 +554,13 @@ watch_iteration() {
   fi
   installed=$(cat "$STATE" 2>/dev/null || true)
   # Reject malformed responses rather than risking an unintended install.
-  if [[ ( -n "$running" && ! "$running" =~ ^[0-9]+$ ) || ( -n "$success" && ! "$success" =~ ^[0-9]+$ ) || ( -n "$installed" && ! "$installed" =~ ^[0-9]+$ ) ]]; then
+  if [[ ( -n "$running" && ! "$running" =~ ^[0-9]+$ ) || ( -n "$queued" && ! "$queued" =~ ^[0-9]+$ ) || ( -n "$success" && ! "$success" =~ ^[0-9]+$ ) || ( -n "$installed" && ! "$installed" =~ ^[0-9]+$ ) ]]; then
     echo "$(date) invalid run ID or installed marker; retrying"
     return
   fi
-  running=${running:-0}; success=${success:-0}; installed=${installed:-0}
+  running=$((10#${running:-0})); queued=$((10#${queued:-0}))
+  success=$((10#${success:-0})); installed=$((10#${installed:-0}))
+  if (( queued > running )); then running="$queued"; fi
   if (( running > installed && running > success )); then
     # The list endpoint may briefly lag behind a completed watch.
     if [[ "${LAST_WATCHED:-}" == "$running" ]]; then
@@ -518,14 +607,11 @@ watch_iteration() {
       NEXT_DELAY=60
       return 0
     fi
-    if [[ "$rc" != 0 ]]; then
-      return "$rc"
-    fi
-    # 60s when install_run returns 0, including an immediate claim hold
-    # (exit 75) and a cache preflight miss. Catch-up of a still-newer
-    # successful run waits out this delay.
-    # A successful gh run watch above leaves NEXT_DELAY at 0.
-    NEXT_DELAY=60
+    case "$rc" in
+      0|77) NEXT_DELAY=0 ;;
+      74|75) NEXT_DELAY=60 ;;
+      *) return "$rc" ;;
+    esac
   fi
 }
 

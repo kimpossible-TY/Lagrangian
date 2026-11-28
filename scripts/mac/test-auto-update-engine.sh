@@ -17,12 +17,14 @@ ATTEMPTS="$TEST_DIR/update-attempts"
 EVENTS="$TEST_DIR/events"
 printf '100\n' > "$STATE"
 : > "$EVENTS"
-RUNNING=''; SUCCESS=100; WATCH_RESULT=0; LIST_ERROR=0
+RUNNING=''; QUEUED=''; SUCCESS=100; WATCH_RESULT=0; LIST_ERROR=0
 gh() {
   if [[ "$1 $2" == 'run list' ]]; then
     (( LIST_ERROR == 0 )) || return 1
+    [[ ! ( "${FAIL_STATUS:-}" == queued && " $* " == *' -s queued '* ) ]] || return 1
     case " $* " in
       *' -s in_progress '*) printf '%s\n' "$RUNNING" ;;
+      *' -s queued '*) printf '%s\n' "$QUEUED" ;;
       *' -s success '*) printf '%s\n' "$SUCCESS" ;;
       *) return 1 ;;
     esac
@@ -50,6 +52,16 @@ expect() {
   : > "$EVENTS"
 }
 watch_iteration; expect ''; [[ "$NEXT_DELAY" == 60 ]]
+# Select the newest active run, including queued runs, and fail closed.
+QUEUED=104; RUNNING=102; SUCCESS=101
+watch_iteration; expect 'watch 104'; [[ "$NEXT_DELAY" == 0 ]]
+watch_iteration; expect ''; [[ "$NEXT_DELAY" == 5 ]]
+FAIL_STATUS=queued
+watch_iteration; expect ''; [[ "$NEXT_DELAY" == 60 ]]
+FAIL_STATUS=''
+QUEUED=bad
+watch_iteration; expect ''; [[ "$NEXT_DELAY" == 60 ]]
+QUEUED=''; LAST_WATCHED=''
 RUNNING=102; SUCCESS=101
 watch_iteration; expect 'watch 102'; [[ "$NEXT_DELAY" == 0 ]]
 watch_iteration; expect ''; [[ "$NEXT_DELAY" == 5 ]]
@@ -57,7 +69,7 @@ watch_iteration; expect ''; [[ "$NEXT_DELAY" == 5 ]]
 RUNNING=103; SUCCESS=102
 watch_iteration; expect 'watch 103'
 RUNNING=''; SUCCESS=103
-watch_iteration; expect 'install 103'
+watch_iteration; expect 'install 103'; [[ "$NEXT_DELAY" == 0 ]]
 watch_iteration; expect ''
 RUNNING=104; WATCH_RESULT=1
 watch_iteration; expect 'watch 104'; [[ "$NEXT_DELAY" == 60 ]]
@@ -115,6 +127,13 @@ eval "$saved_begin_attempt"
 eval "$saved_notify"
 eval "$saved_stage"
 install_run() { printf 'install %s\n' "$1" >> "$EVENTS"; printf '%s\n' "$1" > "$STATE"; }
+# Return codes distinguish a completed install from holds and superseding.
+for code in 0 74 75 76 77; do
+  install_run() { return "$code"; }
+  SUCCESS=$((300 + code)); LAST_CLAIM_ERROR=''
+  watch_iteration; expect ''
+  case "$code" in 0|77) [[ "$NEXT_DELAY" == 0 ]] ;; *) [[ "$NEXT_DELAY" == 60 ]] ;; esac
+done
 printf 'auto-update watch regression passed\n'
 
 # Real install_run through watch_iteration. The gh stub fails `gh run view`,
@@ -175,6 +194,90 @@ SRC="$saved_src"
 APP="$saved_app"
 LOGIN_PLIST="$saved_login_plist"
 printf 'auto-update install failure leaves the marker unchanged\n'
+
+# Exercise actual interruptible commands in an isolated fake worktree.
+(
+  eval "$saved_install_run"
+  export FIXTURE="$TEST_DIR/interrupt" LAGRANGIAN_SUPERSEDE_POLL_SECONDS=0.1
+  mkdir -p "$FIXTURE" "$FIXTURE/cache" "$FIXTURE/app"
+  STATE="$FIXTURE/installed"; STATUS="$FIXTURE/status"; ATTEMPTS="$FIXTURE/attempts"
+  APP="$FIXTURE/app"; SRC="$FIXTURE/source"; ENGINE_CACHE_CONFIGURED="$FIXTURE/cache"
+  printf '10\n' > "$STATE"; printf 'untouched\n' > "$APP/sentinel"
+  printf '20\n' > "$FIXTURE/success"
+  cat > "$FIXTURE/flow-app.py" <<'PYCODE'
+import os,signal,subprocess,sys,time
+from pathlib import Path
+root=Path(os.environ['FIXTURE']); command=sys.argv[1]
+if command=='fetch-engine':
+    if (root/'fail').exists(): sys.exit(9)
+    child=subprocess.Popen([sys.executable,'-c','import signal,time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(60)'])
+    (root/'child-pid').write_text(str(os.getpid()))
+    (root/'descendant-pid').write_text(str(child.pid))
+    while True: time.sleep(1)
+print('/fixture/result')
+PYCODE
+  gh() {
+    case "$1 $2" in
+      'run view') printf 'fake-sha\n' ;;
+      'run list')
+        case " $* " in
+          *' -s success '*)
+            if [[ -e "$FIXTURE/gh-error" ]]; then
+              rm -f "$FIXTURE/gh-error"; printf 'error\n' >> "$FIXTURE/polls"; return 1
+            fi
+            printf 'ok\n' >> "$FIXTURE/polls"; cat "$FIXTURE/success" ;;
+          *) printf '\n' ;;
+        esac ;;
+      *) return 1 ;;
+    esac
+  }
+  git() {
+    case " $* " in
+      *' worktree add '*) mkdir -p "$WT/scripts"; cp "$FIXTURE/flow-app.py" "$WT/scripts/flow-app.py" ;;
+      *' worktree remove '*) rm -rf "$WT" ;;
+    esac
+  }
+  notify() { :; }
+  # A failed lookup alone must not interrupt a step that later succeeds.
+  WT="$FIXTURE"; id=20; CUR=download
+  touch "$FIXTURE/gh-error"
+  run_interruptible_step 20 "$FIXTURE/step-output" /bin/sleep 0.4
+  grep -q '^error$' "$FIXTURE/polls"
+  [[ ! -e "$FIXTURE/superseded-run" ]]
+  : > "$FIXTURE/polls"
+  # Polling must survive an API error before detecting the newer run.
+  touch "$FIXTURE/gh-error"
+  (
+    while [[ ! -s "$FIXTURE/descendant-pid" ]] || ! grep -q '^error$' "$FIXTURE/polls" 2>/dev/null; do /bin/sleep 0.05; done
+    printf '21\n' > "$FIXTURE/success"
+  ) & trigger=$!
+  rc=0; set +e; install_run 20; rc=$?; set -e
+  wait "$trigger"
+  [[ "$rc" == 77 && "$(cat "$STATE")" == 10 && "$(cat "$APP/sentinel")" == untouched ]]
+  [[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["state"])' "$ATTEMPTS/20/state.json")" == superseded ]]
+  [[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["state"])' "$STATUS")" == superseded ]]
+  for pidfile in child-pid descendant-pid; do
+    pid=$(cat "$FIXTURE/$pidfile")
+    if kill -0 "$pid" 2>/dev/null && [[ "$(ps -o stat= -p "$pid")" != Z* ]]; then
+      echo "surviving process $pid" >&2; exit 1
+    fi
+  done
+  # A superseded result requests immediate selection of the newer success.
+  install_run() { printf '%s\n' "$1" >> "$FIXTURE/installed-runs"; [[ "$1" != 20 ]] || return 77; }
+  printf '20\n' > "$FIXTURE/success"; rm -rf "$ATTEMPTS/20"
+  watch_iteration; [[ "$NEXT_DELAY" == 0 ]]
+  printf '21\n' > "$FIXTURE/success"
+  watch_iteration; [[ "$NEXT_DELAY" == 0 ]]
+  [[ "$(cat "$FIXTURE/installed-runs")" == "$(printf '20\n21')" ]]
+  # A real step failure invokes failed(), rather than being treated as stale.
+  eval "$saved_install_run"
+  touch "$FIXTURE/fail"
+  printf '22\n' > "$FIXTURE/success"
+  rc=0; set +e; install_run 22; rc=$?; set -e
+  [[ "$rc" == 9 && "$(cat "$STATE")" == 10 ]]
+  [[ "$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["state"])' "$ATTEMPTS/22/state.json")" == failed ]]
+)
+printf 'auto-update superseding and failure checks passed\n'
 
 rc=0
 begin_attempt 9001 || rc=$?
