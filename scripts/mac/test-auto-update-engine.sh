@@ -424,8 +424,8 @@ PYCODE
 printf 'auto-update signal cleanup checks passed\n'
 
 # BEGIN outer-chain signal regression (also runnable against a saved updater).
-# Keep every real shell layer: signal the runner, never the supervisor. Only
-# network/worktree operations and installation commands are fixture stubs.
+# Keep every real shell layer, including the launch-to-PID-assignment windows.
+# Only network/worktree operations and installation commands are fixture stubs.
 python3 - "$TEST_DIR/outer-signals" "$PWD/scripts/mac/auto-update-engine.sh" <<'PYCODE'
 import os, signal, subprocess, sys, time
 from pathlib import Path
@@ -507,9 +507,35 @@ def kill(pid, group=False):
     try: (os.killpg if group else os.kill)(pid, signal.SIGKILL)
     except ProcessLookupError: pass
 
-def run_case(name, mode, sig=None, code=None):
+def run_case(name, mode, sig=None, code=None, window=None):
     fixture = root / name; fixture.mkdir(); (fixture / 'cache').mkdir()
     (fixture / 'installed').write_text('10\n')
+    case_updater = updater
+    if window is not None:
+        # Hold the launching shell before it stores $!, without starting any
+        # other background job. The harness captures the ready process tree,
+        # then releases this gate to self-signal at that exact launch window.
+        # Bash 3.2 has no BASHPID; foreground Python records its parent shell
+        # even inside install_run_body (where $$ is the outer PID).
+        assignment = '  ' + window + '=$!\n'
+        injection = '''  printf '%s\\n' "$!" > "$FIXTURE/window-child-pid"
+  python3 - "$FIXTURE" <<'PYLAUNCH'
+import os, sys, time
+from pathlib import Path
+root = Path(sys.argv[1])
+(root / 'window-layer-pid').write_text(str(os.getppid()))
+deadline = time.monotonic() + 5
+while not (root / 'window-release').exists():
+    if time.monotonic() >= deadline: raise TimeoutError('launch window not released')
+    time.sleep(0.01)
+PYLAUNCH
+  kill -TERM "${BASHPID:-$(cat "$FIXTURE/window-layer-pid")}"
+'''
+        source = Path(updater).read_text()
+        assert source.count(assignment) == 1, name + ': missing unique PID assignment'
+        case_updater = str(fixture / 'updater.sh')
+        Path(case_updater).write_text(source.replace(
+            assignment, injection + assignment + '  touch "$FIXTURE/window-assigned"\n'))
     # fetch-engine is the only real step reached before cancellation.
     (fixture / 'flow-app.py').write_text(step.read_text().replace(
         "role = sys.argv[1]", "role = 'step' if sys.argv[1] == 'fetch-engine' else sys.argv[1]"))
@@ -517,7 +543,7 @@ def run_case(name, mode, sig=None, code=None):
     with (fixture / 'log').open('w') as log:
         # Background suite invocations can inherit ignored signals. Reset them
         # before exec so Bash can install the updater's signal traps.
-        runner = subprocess.Popen(['bash', '-c', runner_script, '_', updater, str(fixture), mode],
+        runner = subprocess.Popen(['bash', '-c', runner_script, '_', case_updater, str(fixture), mode],
                                   env=env, start_new_session=True, stdout=log, stderr=log,
                                   preexec_fn=lambda: [signal.signal(s, signal.SIG_DFL) for s in (
                                       signal.SIGINT, signal.SIGQUIT, signal.SIGHUP, signal.SIGTERM)])
@@ -535,12 +561,19 @@ def run_case(name, mode, sig=None, code=None):
                                               text=True, capture_output=True, timeout=2)
                 except (OSError, subprocess.SubprocessError) as exc:
                     topology = subprocess.CompletedProcess(['ps'], 1, '', str(exc))
-                os.kill(runner.pid, sig)
+                if window is not None:
+                    child_role = 'supervisor' if window == 'sup' else 'body'
+                    assert read_pid(fixture / 'window-child-pid') == pids[child_role], name + ': wrong launch child'
+                    (fixture / 'window-release').touch()
+                else:
+                    os.kill(runner.pid, sig)
                 expected = 128 + sig
             else:
                 expected = code
             poll(lambda: runner.poll() is not None, name + ': outer updater exit timed out')
             assert runner.returncode == expected, (name, 'outer exit', runner.returncode, expected)
+            if window is not None:
+                assert not (fixture / 'window-assigned').exists(), name + ': PID assignment reached before signal'
             for role, pid in pids.items():
                 poll(lambda: not alive(pid), name + ': surviving ' + role + ' PID ' + str(pid))
             if sig is not None:
@@ -578,6 +611,8 @@ def run_case(name, mode, sig=None, code=None):
 for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
     run_case(sig.name, 'default', sig)
 run_case('ignores-term', 'ignore', signal.SIGTERM)
+for window in ('sup', 'inst'):
+    run_case('launch-window-' + window, 'default', signal.SIGTERM, window=window)
 for code in (0, 74, 75, 76, 77, 9):
     run_case('normal-exit-' + str(code), 'normal-' + str(code), code=code)
 PYCODE

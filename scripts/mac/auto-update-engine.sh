@@ -421,9 +421,9 @@ run_interruptible_step() {
   if declare -F gh >/dev/null; then export -f gh; fi
   export -f newer_success_run
   export REPO
-  trap 'forward_install_signal "$sup" 143' TERM
-  trap 'forward_install_signal "$sup" 130' INT
-  trap 'forward_install_signal "$sup" 129' HUP
+  trap 'forward_install_signal "${sup:-$!}" 143' TERM
+  trap 'forward_install_signal "${sup:-$!}" 130' INT
+  trap 'forward_install_signal "${sup:-$!}" 129' HUP
   python3 - "$current" "$output" "$marker" "$shell_function" "$@" <<'PYCODE' &
 import os, signal, subprocess, sys, tempfile, time
 from pathlib import Path
@@ -678,9 +678,9 @@ notify "빌드 $id 설치 완료"
 
 install_run() {
   local inst='' rc=0 signal_cleanup_started=0
-  trap 'forward_install_signal "$inst" 143' TERM
-  trap 'forward_install_signal "$inst" 130' INT
-  trap 'forward_install_signal "$inst" 129' HUP
+  trap 'forward_install_signal "${inst:-$!}" 143' TERM
+  trap 'forward_install_signal "${inst:-$!}" 130' INT
+  trap 'forward_install_signal "${inst:-$!}" 129' HUP
   # A background function already runs in one subshell. An extra subshell
   # wrapper would receive TERM instead of the body that waits for the step.
   install_run_body "$@" &
