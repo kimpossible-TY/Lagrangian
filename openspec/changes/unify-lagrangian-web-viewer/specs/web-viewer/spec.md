@@ -13,18 +13,21 @@ Lagrangian SHALL be the canonical native macOS product and feature contract. Lag
 - **AND** a titled document uses its title followed by ` · Lagrangian Web Viewer`
 
 ### Requirement: Read-only cross-project preview service
-`cross_project_refs.py` SHALL load bounded schema-1 catalogs within the configured package root, preserve Swift resolution semantics, and extract plain-text snippets from mounted accepted documents through canonical `import_accepted_document`. It SHALL NOT guess ambiguous matches or read arbitrary target filesystems.
+`cross_project_refs.py` SHALL load bounded schema-1 catalogs within the configured package root, conform to the single Swift-owned resolution/snippet rule set through `tests/fixtures/cross-project-resolution.json` read by both Python and Swift tests, and extract plain-text snippets from mounted accepted documents through canonical `import_accepted_document`. It SHALL NOT guess ambiguous matches or read arbitrary target filesystems.
 
 #### Scenario: Load and match bounded inputs
 - **WHEN** a catalog and mounted profile registry are consulted
 - **THEN** the catalog is at most 16 MiB with strict schema parsing, real-path containment and no path leaks
-- **AND** the read-only registry matches explicit projectRefKey, profile ID, normalized root basename or project title, rejecting duplicate matches
-- **AND** snippets are bounded to 600 characters and four blocks
+- **AND** the read-only registry matches exact nonempty projectRefKey first, then normalized key against root basename or native profile name among unconfigured profiles, rejecting duplicate matches; profile IDs and catalog titles are not aliases
+- **AND** snippets match recursive anchors before whitespace-normalized case-insensitive display/canonical text, and are bounded to 600 grapheme clusters and four blocks under the documented Python Unicode limitations
 
 #### Scenario: Preview an accepted mounted target
 - **WHEN** a reference resolves uniquely and its mounted target has a matching accepted document
 - **THEN** GET `/api/cross-project/preview` or `/d/<id>/api/cross-project/preview` returns HTTP 200 with status, projectKey, projectTitle, label, refText, title, snippet, truncated, targetUrl, anchor and pdfUrl
-- **AND** the operation neither compiles nor starts services nor reads arbitrary unmounted filesystems nor mutates state
+- **AND** the operation neither compiles nor starts services nor reads arbitrary unmounted filesystems nor mutates accepted publication
+- **AND** only snapshot/identity capture holds the publication lock; import and snippet work run outside it
+- **AND** concurrent requests share one bounded per-target import keyed by document ID, revision and service ID; identity changes invalidate it and native document/asset caps apply before retention
+- **AND** preview and state capability discovery share the parsed catalog by file signature, reloading on signature changes
 
 #### Scenario: Resolve without a usable snippet
 - **WHEN** a unique target is unmounted, uncompiled, compiling or cannot be imported or matched
@@ -136,5 +139,6 @@ WV03I SHALL show a preview before explicit full-page same-origin `/d/<id>/` navi
 #### Scenario: Configure read-only peer matching
 - **WHEN** the source previews a project key from its configured Project.packages catalog
 - **THEN** only mounted ReaderState peers from the configured profiles and loaded inventory may supply target routes
-- **AND** exact nonempty projectRefKey takes precedence over exact ID and normalized key/title fallback among unconfigured profiles, with duplicate matches rejected at each tier
+- **AND** a normalization-empty key never matches; exact nonempty projectRefKey takes precedence over normalized key matching root basename or native profile name among unconfigured profiles, with duplicate matches rejected at each tier
+- **AND** normalization lowercases and splits whitespace/underscore/hyphen runs, drops empty pieces and joins with hyphens; neither profile ID nor catalog title supplies a matching tier
 - **AND** standalone or unmounted targets retain metadata-only preview without starting services; route IDs remain distinct from documentID, service and revision

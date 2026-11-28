@@ -53,3 +53,6 @@ label attributes transfer only when the child lacks them. Existing child
 attributes win conflicts. Section/native export retains user label anchors
 separately from DOM ids; first label ownership avoids duplicate exported ids.
 Native duplicate-anchor rejection still applies to remaining duplicate DOM ids.
+
+## WV02C web adapter conformance (LAG-7 PR2)
+The r2-S3 retirement removed an unused Python prototype. WV02C requires a production web adapter in `flow_reader/services/cross_project_refs.py`, re-implementing Swift catalog/profile/snippet rules within the Python runtime. This amends the no-Python-implementation decision only for web delivery: Swift remains the semantic owner and native consumers remain Swift. Both Python and the Swift ProjectService harness read `tests/fixtures/cross-project-resolution.json`, including the root-separator, catalog-title-only and profile-ID divergences and snippet edge cases. The web adapter adds no ID/title alias tiers. See the web-viewer design for the explicit stdlib grapheme/Foundation Unicode limitations and the bounded snapshot/import cache; those limits do not change Swift behavior.

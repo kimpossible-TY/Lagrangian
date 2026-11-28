@@ -1,0 +1,1276 @@
+{
+  "resolution": [
+    {
+      "name": "leading separators in root",
+      "catalog": {
+        "schema": 1,
+        "projects": {
+          "drafts": {
+            "title": "Book",
+            "pdf_url": "https://example.test/book.pdf",
+            "references": {
+              "thm": {
+                "page": 2,
+                "text": "Theorem 1"
+              }
+            },
+            "ambiguous_labels": [
+              "duplicate"
+            ]
+          }
+        }
+      },
+      "profiles": [
+        {
+          "id": "p1",
+          "name": "Other",
+          "root": "/work/_drafts"
+        }
+      ],
+      "query": {
+        "project_key": "drafts",
+        "label": "thm"
+      },
+      "expected": {
+        "status": "unique",
+        "projectKey": "drafts",
+        "label": "thm",
+        "profileID": "p1"
+      }
+    },
+    {
+      "name": "catalog title is not an alias",
+      "catalog": {
+        "schema": 1,
+        "projects": {
+          "book": {
+            "title": "Algebra Notes",
+            "pdf_url": "https://example.test/book.pdf",
+            "references": {
+              "thm": {
+                "page": 2,
+                "text": "Theorem 1"
+              }
+            },
+            "ambiguous_labels": [
+              "duplicate"
+            ]
+          }
+        }
+      },
+      "profiles": [
+        {
+          "id": "p1",
+          "name": "Algebra Notes",
+          "root": "/work/other"
+        }
+      ],
+      "query": {
+        "project_key": "book",
+        "label": "thm"
+      },
+      "expected": {
+        "status": "unique",
+        "projectKey": "book",
+        "label": "thm",
+        "profileID": null
+      }
+    },
+    {
+      "name": "profile ID is not an alias",
+      "catalog": {
+        "schema": 1,
+        "projects": {
+          "p1": {
+            "title": "Book",
+            "pdf_url": "https://example.test/book.pdf",
+            "references": {
+              "thm": {
+                "page": 2,
+                "text": "Theorem 1"
+              }
+            },
+            "ambiguous_labels": [
+              "duplicate"
+            ]
+          }
+        }
+      },
+      "profiles": [
+        {
+          "id": "p1",
+          "name": "Other",
+          "root": "/work/other"
+        }
+      ],
+      "query": {
+        "project_key": "p1",
+        "label": "thm"
+      },
+      "expected": {
+        "status": "unique",
+        "projectKey": "p1",
+        "label": "thm",
+        "profileID": null
+      }
+    },
+    {
+      "name": "normalized profile name",
+      "catalog": {
+        "schema": 1,
+        "projects": {
+          "my-book": {
+            "title": "Book",
+            "pdf_url": "https://example.test/book.pdf",
+            "references": {
+              "thm": {
+                "page": 2,
+                "text": "Theorem 1"
+              }
+            },
+            "ambiguous_labels": [
+              "duplicate"
+            ]
+          }
+        }
+      },
+      "profiles": [
+        {
+          "id": "p1",
+          "name": "  MY__ Book-- ",
+          "root": "/work/other"
+        }
+      ],
+      "query": {
+        "project_key": "my-book",
+        "label": "thm"
+      },
+      "expected": {
+        "status": "unique",
+        "projectKey": "my-book",
+        "label": "thm",
+        "profileID": "p1"
+      }
+    },
+    {
+      "name": "normalized root basename",
+      "catalog": {
+        "schema": 1,
+        "projects": {
+          "my-book": {
+            "title": "Book",
+            "pdf_url": "https://example.test/book.pdf",
+            "references": {
+              "thm": {
+                "page": 2,
+                "text": "Theorem 1"
+              }
+            },
+            "ambiguous_labels": [
+              "duplicate"
+            ]
+          }
+        }
+      },
+      "profiles": [
+        {
+          "id": "p1",
+          "name": "Other",
+          "root": "/work/My__Book--/"
+        }
+      ],
+      "query": {
+        "project_key": "my-book",
+        "label": "thm"
+      },
+      "expected": {
+        "status": "unique",
+        "projectKey": "my-book",
+        "label": "thm",
+        "profileID": "p1"
+      }
+    },
+    {
+      "name": "explicit key wins",
+      "catalog": {
+        "schema": 1,
+        "projects": {
+          "book": {
+            "title": "Book",
+            "pdf_url": "https://example.test/book.pdf",
+            "references": {
+              "thm": {
+                "page": 2,
+                "text": "Theorem 1"
+              }
+            },
+            "ambiguous_labels": [
+              "duplicate"
+            ]
+          }
+        }
+      },
+      "profiles": [
+        {
+          "id": "p1",
+          "name": "Other",
+          "root": "/work/other",
+          "projectRefKey": "book"
+        },
+        {
+          "id": "p2",
+          "name": "Book",
+          "root": "/work/other"
+        }
+      ],
+      "query": {
+        "project_key": "book",
+        "label": "thm"
+      },
+      "expected": {
+        "status": "unique",
+        "projectKey": "book",
+        "label": "thm",
+        "profileID": "p1"
+      }
+    },
+    {
+      "name": "explicit key is exact",
+      "catalog": {
+        "schema": 1,
+        "projects": {
+          "BOOK": {
+            "title": "Book",
+            "pdf_url": "https://example.test/book.pdf",
+            "references": {
+              "thm": {
+                "page": 2,
+                "text": "Theorem 1"
+              }
+            },
+            "ambiguous_labels": [
+              "duplicate"
+            ]
+          }
+        }
+      },
+      "profiles": [
+        {
+          "id": "p1",
+          "name": "Other",
+          "root": "/work/other",
+          "projectRefKey": "book"
+        }
+      ],
+      "query": {
+        "project_key": "BOOK",
+        "label": "thm"
+      },
+      "expected": {
+        "status": "unique",
+        "projectKey": "BOOK",
+        "label": "thm",
+        "profileID": null
+      }
+    },
+    {
+      "name": "configured key excludes fallback",
+      "catalog": {
+        "schema": 1,
+        "projects": {
+          "book": {
+            "title": "Book",
+            "pdf_url": "https://example.test/book.pdf",
+            "references": {
+              "thm": {
+                "page": 2,
+                "text": "Theorem 1"
+              }
+            },
+            "ambiguous_labels": [
+              "duplicate"
+            ]
+          }
+        }
+      },
+      "profiles": [
+        {
+          "id": "p1",
+          "name": "Book",
+          "root": "/work/other",
+          "projectRefKey": "other"
+        }
+      ],
+      "query": {
+        "project_key": "book",
+        "label": "thm"
+      },
+      "expected": {
+        "status": "unique",
+        "projectKey": "book",
+        "label": "thm",
+        "profileID": null
+      }
+    },
+    {
+      "name": "empty configured key enables fallback",
+      "catalog": {
+        "schema": 1,
+        "projects": {
+          "book": {
+            "title": "Book",
+            "pdf_url": "https://example.test/book.pdf",
+            "references": {
+              "thm": {
+                "page": 2,
+                "text": "Theorem 1"
+              }
+            },
+            "ambiguous_labels": [
+              "duplicate"
+            ]
+          }
+        }
+      },
+      "profiles": [
+        {
+          "id": "p1",
+          "name": "Book",
+          "root": "/work/other",
+          "projectRefKey": ""
+        }
+      ],
+      "query": {
+        "project_key": "book",
+        "label": "thm"
+      },
+      "expected": {
+        "status": "unique",
+        "projectKey": "book",
+        "label": "thm",
+        "profileID": "p1"
+      }
+    },
+    {
+      "name": "duplicate explicit keys",
+      "catalog": {
+        "schema": 1,
+        "projects": {
+          "book": {
+            "title": "Book",
+            "pdf_url": "https://example.test/book.pdf",
+            "references": {
+              "thm": {
+                "page": 2,
+                "text": "Theorem 1"
+              }
+            },
+            "ambiguous_labels": [
+              "duplicate"
+            ]
+          }
+        }
+      },
+      "profiles": [
+        {
+          "id": "p1",
+          "name": "Other",
+          "root": "/work/other",
+          "projectRefKey": "book"
+        },
+        {
+          "id": "p2",
+          "name": "Other",
+          "root": "/work/other",
+          "projectRefKey": "book"
+        }
+      ],
+      "query": {
+        "project_key": "book",
+        "label": "thm"
+      },
+      "expected": {
+        "status": "unique",
+        "projectKey": "book",
+        "label": "thm",
+        "profileID": null
+      }
+    },
+    {
+      "name": "duplicate fallback matches",
+      "catalog": {
+        "schema": 1,
+        "projects": {
+          "book": {
+            "title": "Book",
+            "pdf_url": "https://example.test/book.pdf",
+            "references": {
+              "thm": {
+                "page": 2,
+                "text": "Theorem 1"
+              }
+            },
+            "ambiguous_labels": [
+              "duplicate"
+            ]
+          }
+        }
+      },
+      "profiles": [
+        {
+          "id": "p1",
+          "name": "Book",
+          "root": "/work/other"
+        },
+        {
+          "id": "p2",
+          "name": "Other",
+          "root": "/work/book"
+        }
+      ],
+      "query": {
+        "project_key": "book",
+        "label": "thm"
+      },
+      "expected": {
+        "status": "unique",
+        "projectKey": "book",
+        "label": "thm",
+        "profileID": null
+      }
+    },
+    {
+      "name": "normalization empty key",
+      "catalog": {
+        "schema": 1,
+        "projects": {
+          " _-- ": {
+            "title": "Book",
+            "pdf_url": "https://example.test/book.pdf",
+            "references": {
+              "thm": {
+                "page": 2,
+                "text": "Theorem 1"
+              }
+            },
+            "ambiguous_labels": [
+              "duplicate"
+            ]
+          }
+        }
+      },
+      "profiles": [
+        {
+          "id": "p1",
+          "name": " _-- ",
+          "root": "/work/_"
+        }
+      ],
+      "query": {
+        "project_key": " _-- ",
+        "label": "thm"
+      },
+      "expected": {
+        "status": "unique",
+        "projectKey": " _-- ",
+        "label": "thm",
+        "profileID": null
+      }
+    },
+    {
+      "name": "missing catalog key",
+      "catalog": {
+        "schema": 1,
+        "projects": {
+          "book": {
+            "title": "Book",
+            "pdf_url": "https://example.test/book.pdf",
+            "references": {
+              "thm": {
+                "page": 2,
+                "text": "Theorem 1"
+              }
+            },
+            "ambiguous_labels": [
+              "duplicate"
+            ]
+          }
+        }
+      },
+      "profiles": [
+        {
+          "id": "p1",
+          "name": "Book",
+          "root": "/work/other"
+        }
+      ],
+      "query": {
+        "project_key": "missing",
+        "label": "thm"
+      },
+      "expected": {
+        "status": "unresolved",
+        "projectKey": null,
+        "label": null,
+        "profileID": null
+      }
+    },
+    {
+      "name": "explicit ambiguous label",
+      "catalog": {
+        "schema": 1,
+        "projects": {
+          "book": {
+            "title": "Book",
+            "pdf_url": "https://example.test/book.pdf",
+            "references": {
+              "thm": {
+                "page": 2,
+                "text": "Theorem 1"
+              }
+            },
+            "ambiguous_labels": [
+              "duplicate"
+            ]
+          }
+        }
+      },
+      "profiles": [
+        {
+          "id": "p1",
+          "name": "Book",
+          "root": "/work/other"
+        }
+      ],
+      "query": {
+        "project_key": "book",
+        "label": "duplicate"
+      },
+      "expected": {
+        "status": "ambiguous",
+        "projectKey": null,
+        "label": null,
+        "profileID": null
+      }
+    },
+    {
+      "name": "exact PDF and suffix text",
+      "catalog": {
+        "schema": 1,
+        "projects": {
+          "book": {
+            "title": "Book",
+            "pdf_url": "https://example.test/book.pdf",
+            "references": {
+              "thm": {
+                "page": 2,
+                "text": "Theorem 1"
+              }
+            },
+            "ambiguous_labels": [
+              "duplicate"
+            ]
+          }
+        }
+      },
+      "profiles": [
+        {
+          "id": "p1",
+          "name": "Book",
+          "root": "/work/other"
+        }
+      ],
+      "query": {
+        "href": "https://example.test/book.pdf#page=+02",
+        "link_text": "Theorem 1 of Book"
+      },
+      "expected": {
+        "status": "unique",
+        "projectKey": "book",
+        "label": "thm",
+        "profileID": "p1"
+      }
+    },
+    {
+      "name": "PDF text case matters",
+      "catalog": {
+        "schema": 1,
+        "projects": {
+          "book": {
+            "title": "Book",
+            "pdf_url": "https://example.test/book.pdf",
+            "references": {
+              "thm": {
+                "page": 2,
+                "text": "Theorem 1"
+              }
+            },
+            "ambiguous_labels": [
+              "duplicate"
+            ]
+          }
+        }
+      },
+      "profiles": [
+        {
+          "id": "p1",
+          "name": "Book",
+          "root": "/work/other"
+        }
+      ],
+      "query": {
+        "href": "https://example.test/book.pdf#page=2",
+        "link_text": "theorem 1"
+      },
+      "expected": {
+        "status": "unresolved",
+        "projectKey": null,
+        "label": null,
+        "profileID": null
+      }
+    },
+    {
+      "name": "explicit identity overrides href",
+      "catalog": {
+        "schema": 1,
+        "projects": {
+          "book": {
+            "title": "Book",
+            "pdf_url": "https://example.test/book.pdf",
+            "references": {
+              "thm": {
+                "page": 2,
+                "text": "Theorem 1"
+              }
+            },
+            "ambiguous_labels": [
+              "duplicate"
+            ]
+          }
+        }
+      },
+      "profiles": [
+        {
+          "id": "p1",
+          "name": "Book",
+          "root": "/work/other"
+        }
+      ],
+      "query": {
+        "project_key": "book",
+        "label": "thm",
+        "href": "https://wrong.test/#page=2"
+      },
+      "expected": {
+        "status": "unique",
+        "projectKey": "book",
+        "label": "thm",
+        "profileID": "p1"
+      }
+    },
+    {
+      "name": "ambiguous PDF identities",
+      "catalog": {
+        "schema": 1,
+        "projects": {
+          "book": {
+            "title": "Book",
+            "pdf_url": "https://example.test/book.pdf",
+            "references": {
+              "thm": {
+                "page": 2,
+                "text": "Theorem 1"
+              }
+            },
+            "ambiguous_labels": [
+              "duplicate"
+            ]
+          },
+          "other": {
+            "title": "Book",
+            "pdf_url": "https://example.test/book.pdf",
+            "references": {
+              "thm": {
+                "page": 2,
+                "text": "Theorem 1"
+              }
+            },
+            "ambiguous_labels": [
+              "duplicate"
+            ]
+          }
+        }
+      },
+      "profiles": [],
+      "query": {
+        "href": "https://example.test/book.pdf#page=2"
+      },
+      "expected": {
+        "status": "ambiguous",
+        "projectKey": null,
+        "label": null,
+        "profileID": null
+      }
+    },
+    {
+      "name": "NFD Korean root basename matches NFC catalog key",
+      "catalog": {
+        "schema": 1,
+        "projects": {
+          "\ub300\uc218\ud559-\ub178\ud2b8": {
+            "title": "\ub300\uc218\ud559-\ub178\ud2b8",
+            "pdf_url": "https://example.test/book.pdf",
+            "references": {
+              "thm": {
+                "page": 2,
+                "text": "Theorem 1"
+              }
+            },
+            "ambiguous_labels": [
+              "duplicate"
+            ]
+          }
+        }
+      },
+      "profiles": [
+        {
+          "id": "p1",
+          "name": "Other",
+          "root": "/work/\u1103\u1162\u1109\u116e\u1112\u1161\u11a8-\u1102\u1169\u1110\u1173"
+        }
+      ],
+      "query": {
+        "project_key": "\ub300\uc218\ud559-\ub178\ud2b8",
+        "label": "thm"
+      },
+      "expected": {
+        "status": "unique",
+        "projectKey": "\ub300\uc218\ud559-\ub178\ud2b8",
+        "label": "thm",
+        "profileID": "p1"
+      }
+    },
+    {
+      "name": "NFD Korean projectRefKey matches NFC catalog key",
+      "catalog": {
+        "schema": 1,
+        "projects": {
+          "\ub300\uc218\ud559-\ub178\ud2b8": {
+            "title": "\ub300\uc218\ud559-\ub178\ud2b8",
+            "pdf_url": "https://example.test/book.pdf",
+            "references": {
+              "thm": {
+                "page": 2,
+                "text": "Theorem 1"
+              }
+            },
+            "ambiguous_labels": [
+              "duplicate"
+            ]
+          }
+        }
+      },
+      "profiles": [
+        {
+          "id": "p1",
+          "name": "Other",
+          "root": "/work/other",
+          "projectRefKey": "\u1103\u1162\u1109\u116e\u1112\u1161\u11a8-\u1102\u1169\u1110\u1173"
+        }
+      ],
+      "query": {
+        "project_key": "\ub300\uc218\ud559-\ub178\ud2b8",
+        "label": "thm"
+      },
+      "expected": {
+        "status": "unique",
+        "projectKey": "\ub300\uc218\ud559-\ub178\ud2b8",
+        "label": "thm",
+        "profileID": "p1"
+      }
+    }
+  ],
+  "snippets": [
+    {
+      "name": "descendant anchors precede text",
+      "blocks": [
+        {
+          "id": "block",
+          "sectionID": "s",
+          "kind": "text",
+          "displayText": "Search Text",
+          "canonicalText": "Search Text",
+          "anchors": [],
+          "children": []
+        },
+        {
+          "id": "block",
+          "sectionID": "s",
+          "kind": "text",
+          "displayText": " Alpha ",
+          "canonicalText": " Alpha ",
+          "anchors": [],
+          "children": [
+            {
+              "id": "block",
+              "sectionID": "s",
+              "kind": "text",
+              "displayText": "leaf",
+              "canonicalText": "leaf",
+              "anchors": [
+                "target"
+              ],
+              "children": []
+            }
+          ]
+        },
+        {
+          "id": "block",
+          "sectionID": "s",
+          "kind": "text",
+          "displayText": "Next",
+          "canonicalText": "Next",
+          "anchors": [],
+          "children": []
+        },
+        {
+          "id": "block",
+          "sectionID": "s",
+          "kind": "heading",
+          "displayText": "Stop",
+          "canonicalText": "Stop",
+          "anchors": [],
+          "children": []
+        }
+      ],
+      "label": "target",
+      "reference_text": "SEARCH text",
+      "expected": {
+        "text": "Alpha\n\nNext",
+        "truncated": false
+      }
+    },
+    {
+      "name": "node ID alone is not an anchor",
+      "blocks": [
+        {
+          "id": "target",
+          "sectionID": "s",
+          "kind": "text",
+          "displayText": "Hidden",
+          "canonicalText": "Hidden",
+          "anchors": [],
+          "children": []
+        }
+      ],
+      "label": "target",
+      "reference_text": null,
+      "expected": null
+    },
+    {
+      "name": "reference_text field is not searchable",
+      "blocks": [
+        {
+          "id": "block",
+          "sectionID": "s",
+          "kind": "text",
+          "displayText": "Other",
+          "canonicalText": "Other",
+          "anchors": [],
+          "children": [],
+          "reference_text": "Search"
+        }
+      ],
+      "label": null,
+      "reference_text": "search",
+      "expected": null
+    },
+    {
+      "name": "case insensitive whitespace normalization",
+      "blocks": [
+        {
+          "id": "block",
+          "sectionID": "s",
+          "kind": "text",
+          "displayText": "Search Text",
+          "canonicalText": "Search Text",
+          "anchors": [],
+          "children": []
+        },
+        {
+          "id": "block",
+          "sectionID": "s",
+          "kind": "text",
+          "displayText": "Next",
+          "canonicalText": "Next",
+          "anchors": [],
+          "children": []
+        }
+      ],
+      "label": null,
+      "reference_text": " SEARCH text ",
+      "max_blocks": 1,
+      "expected": {
+        "text": "Search Text",
+        "truncated": true
+      }
+    },
+    {
+      "name": "canonical fallback",
+      "blocks": [
+        {
+          "id": "block",
+          "sectionID": "s",
+          "kind": "text",
+          "displayText": " ",
+          "canonicalText": "Canonical",
+          "anchors": [],
+          "children": []
+        }
+      ],
+      "label": null,
+      "reference_text": "canonical",
+      "expected": {
+        "text": "Canonical",
+        "truncated": false
+      }
+    },
+    {
+      "name": "section boundary is not truncation",
+      "blocks": [
+        {
+          "id": "block",
+          "sectionID": "s",
+          "kind": "text",
+          "displayText": "A",
+          "canonicalText": "A",
+          "anchors": [
+            "a"
+          ],
+          "children": []
+        },
+        {
+          "id": "block",
+          "sectionID": "other",
+          "kind": "text",
+          "displayText": "B",
+          "canonicalText": "B",
+          "anchors": [],
+          "children": []
+        }
+      ],
+      "label": "a",
+      "reference_text": null,
+      "max_blocks": 1,
+      "expected": {
+        "text": "A",
+        "truncated": false
+      }
+    },
+    {
+      "name": "block cutoff",
+      "blocks": [
+        {
+          "id": "block",
+          "sectionID": "s",
+          "kind": "text",
+          "displayText": "A",
+          "canonicalText": "A",
+          "anchors": [
+            "a"
+          ],
+          "children": []
+        },
+        {
+          "id": "block",
+          "sectionID": "s",
+          "kind": "text",
+          "displayText": "B",
+          "canonicalText": "B",
+          "anchors": [],
+          "children": []
+        }
+      ],
+      "label": "a",
+      "reference_text": null,
+      "max_blocks": 1,
+      "expected": {
+        "text": "A",
+        "truncated": true
+      }
+    },
+    {
+      "name": "full case mapping",
+      "blocks": [
+        {
+          "id": "block",
+          "sectionID": "s",
+          "kind": "text",
+          "displayText": "Straße",
+          "canonicalText": "Straße",
+          "anchors": [],
+          "children": []
+        }
+      ],
+      "label": null,
+      "reference_text": "STRASSE",
+      "expected": {
+        "text": "Straße",
+        "truncated": false
+      }
+    },
+    {
+      "name": "no partial case expansion",
+      "blocks": [
+        {
+          "id": "block",
+          "sectionID": "s",
+          "kind": "text",
+          "displayText": "ß",
+          "canonicalText": "ß",
+          "anchors": [],
+          "children": []
+        }
+      ],
+      "label": null,
+      "reference_text": "s",
+      "expected": null
+    },
+    {
+      "name": "dotted I is distinct",
+      "blocks": [
+        {
+          "id": "block",
+          "sectionID": "s",
+          "kind": "text",
+          "displayText": "İ",
+          "canonicalText": "İ",
+          "anchors": [],
+          "children": []
+        }
+      ],
+      "label": null,
+      "reference_text": "i",
+      "expected": null
+    },
+    {
+      "name": "canonical unicode equivalence",
+      "blocks": [
+        {
+          "id": "block",
+          "sectionID": "s",
+          "kind": "text",
+          "displayText": "café",
+          "canonicalText": "café",
+          "anchors": [],
+          "children": []
+        }
+      ],
+      "label": null,
+      "reference_text": "café",
+      "expected": {
+        "text": "café",
+        "truncated": false
+      }
+    },
+    {
+      "name": "anchor case is exact",
+      "blocks": [
+        {
+          "id": "block",
+          "sectionID": "s",
+          "kind": "text",
+          "displayText": "A",
+          "canonicalText": "A",
+          "anchors": [
+            "TARGET"
+          ],
+          "children": []
+        }
+      ],
+      "label": "target",
+      "reference_text": null,
+      "expected": null
+    },
+    {
+      "name": "combining mark",
+      "blocks": [
+        {
+          "id": "block",
+          "sectionID": "s",
+          "kind": "text",
+          "displayText": "ééééé",
+          "canonicalText": "ééééé",
+          "anchors": [
+            "a"
+          ],
+          "children": []
+        }
+      ],
+      "label": "a",
+      "reference_text": null,
+      "max_chars": 4,
+      "expected": {
+        "text": "é...",
+        "truncated": true
+      }
+    },
+    {
+      "name": "emoji family",
+      "blocks": [
+        {
+          "id": "block",
+          "sectionID": "s",
+          "kind": "text",
+          "displayText": "👨‍👩‍👧‍👦👨‍👩‍👧‍👦👨‍👩‍👧‍👦👨‍👩‍👧‍👦👨‍👩‍👧‍👦",
+          "canonicalText": "👨‍👩‍👧‍👦👨‍👩‍👧‍👦👨‍👩‍👧‍👦👨‍👩‍👧‍👦👨‍👩‍👧‍👦",
+          "anchors": [
+            "a"
+          ],
+          "children": []
+        }
+      ],
+      "label": "a",
+      "reference_text": null,
+      "max_chars": 4,
+      "expected": {
+        "text": "👨‍👩‍👧‍👦...",
+        "truncated": true
+      }
+    },
+    {
+      "name": "flag pair",
+      "blocks": [
+        {
+          "id": "block",
+          "sectionID": "s",
+          "kind": "text",
+          "displayText": "🇰🇷🇰🇷🇰🇷🇰🇷🇰🇷",
+          "canonicalText": "🇰🇷🇰🇷🇰🇷🇰🇷🇰🇷",
+          "anchors": [
+            "a"
+          ],
+          "children": []
+        }
+      ],
+      "label": "a",
+      "reference_text": null,
+      "max_chars": 4,
+      "expected": {
+        "text": "🇰🇷...",
+        "truncated": true
+      }
+    },
+    {
+      "name": "emoji modifier",
+      "blocks": [
+        {
+          "id": "block",
+          "sectionID": "s",
+          "kind": "text",
+          "displayText": "👍🏽👍🏽👍🏽👍🏽👍🏽",
+          "canonicalText": "👍🏽👍🏽👍🏽👍🏽👍🏽",
+          "anchors": [
+            "a"
+          ],
+          "children": []
+        }
+      ],
+      "label": "a",
+      "reference_text": null,
+      "max_chars": 4,
+      "expected": {
+        "text": "👍🏽...",
+        "truncated": true
+      }
+    },
+    {
+      "name": "Hangul jamo",
+      "blocks": [
+        {
+          "id": "block",
+          "sectionID": "s",
+          "kind": "text",
+          "displayText": "각각각각각",
+          "canonicalText": "각각각각각",
+          "anchors": [
+            "a"
+          ],
+          "children": []
+        }
+      ],
+      "label": "a",
+      "reference_text": null,
+      "max_chars": 4,
+      "expected": {
+        "text": "각...",
+        "truncated": true
+      }
+    },
+    {
+      "name": "short grapheme limit",
+      "blocks": [
+        {
+          "id": "block",
+          "sectionID": "s",
+          "kind": "text",
+          "displayText": "é👩‍💻ABC",
+          "canonicalText": "é👩‍💻ABC",
+          "anchors": [
+            "a"
+          ],
+          "children": []
+        }
+      ],
+      "label": "a",
+      "reference_text": null,
+      "max_chars": 2,
+      "expected": {
+        "text": "é👩‍💻",
+        "truncated": true
+      }
+    },
+    {
+      "name": "zero block limit",
+      "blocks": [
+        {
+          "id": "block",
+          "sectionID": "s",
+          "kind": "text",
+          "displayText": "A",
+          "canonicalText": "A",
+          "anchors": [
+            "a"
+          ],
+          "children": []
+        }
+      ],
+      "label": "a",
+      "reference_text": null,
+      "max_blocks": 0,
+      "expected": null
+    },
+    {
+      "name": "NFD Korean anchor matches NFC label without changing displayed text",
+      "blocks": [
+        {
+          "id": "block",
+          "sectionID": "s",
+          "kind": "text",
+          "displayText": "\u1103\u1162\u1109\u116e\u1112\u1161\u11a8-\u1102\u1169\u1110\u1173",
+          "canonicalText": "\ub300\uc218\ud559-\ub178\ud2b8",
+          "anchors": [
+            "\u110c\u1165\u11bc\u1105\u1175"
+          ],
+          "children": []
+        }
+      ],
+      "label": "\uc815\ub9ac",
+      "reference_text": null,
+      "expected": {
+        "text": "\u1103\u1162\u1109\u116e\u1112\u1161\u11a8-\u1102\u1169\u1110\u1173",
+        "truncated": false
+      }
+    }
+  ]
+}

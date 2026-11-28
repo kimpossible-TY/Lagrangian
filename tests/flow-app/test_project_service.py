@@ -33,12 +33,13 @@ class ProjectServices(unittest.TestCase):
         cls.executable = Path(temp.name) / 'project-service-tests'
         subprocess.run([
             '/usr/bin/swiftc', '-swift-version', '5', '-warnings-as-errors',
+            '-module-cache-path', Path(temp.name) / 'module-cache',
             *package.swift_sources(include_app=False),
             ROOT / 'tests/flow-app/ProjectServiceTests.swift', '-o', cls.executable,
         ], check=True)
 
-    def scenario(self, name):
-        result = subprocess.run([self.executable, name], capture_output=True, text=True)
+    def scenario(self, name, *args):
+        result = subprocess.run([self.executable, name, *args], capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_reference_key_legacy_decoding_validation_and_round_trip(self):
@@ -58,6 +59,9 @@ class ProjectServices(unittest.TestCase):
 
     def test_cross_project_catalog_resolution_validation_and_profile_matching(self):
         self.scenario('cross-project-catalog')
+
+    def test_shared_cross_project_resolution_and_snippets(self):
+        self.scenario('cross-project-shared-fixture', ROOT / 'tests/fixtures/cross-project-resolution.json')
 
     def test_cross_project_navigation_bounded_history_and_metadata(self):
         self.scenario('cross-project-stack')

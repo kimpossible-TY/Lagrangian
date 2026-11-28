@@ -13,7 +13,7 @@
 - [x] `/opt/homebrew/bin/python3 -B -m unittest tests/flow-app/test_flow_ui.py -v` — 21 tests passed, including IDE directory registration, cross-project navigation/session lifecycle and home-minimal controls; no Swift warnings.
 - [x] `/opt/homebrew/bin/python3 -B -m unittest tools/flow-reader/tests/test_sections.py -v` — 10 tests passed.
 - [x] `/opt/homebrew/bin/python3 -B -m unittest tests/flow-app/native-reader-app/test_contract.py -k LabelContractTests -v` — 4 tests passed, including duplicate-ID rejection and real compiler label preservation.
-- [x] Historical Python catalog prototype: 11 isolated tests passed before retirement. r2-S3 removes the unused service and its test; production resolution/snippets belong to Swift.
+- [x] Historical Python catalog prototype: 11 isolated tests passed before retirement. r2-S3 removed the unused service and its test; Swift remains the semantic owner. WV02C subsequently adds a conforming Python web adapter under the shared fixture contract below.
 
 `openspec validate add-cross-project-references --strict` passed. These checks use isolated fixtures and do not install or restart the user's app or services.
 
@@ -28,6 +28,9 @@ These contracts are wired through the existing owners and covered by integrated 
 ## Post-review corrections
 - [x] r2-S1: retain target reader startup for preview and document the policy explicitly.
 - [x] r2-S2: reset Back on new Read/profile selection, skip deleted origins and reject empty origins.
-- [x] r2-S3: remove the unused Python catalog/snippet policy after confirming no production importers.
+- [x] r2-S3: remove the unused Python catalog/snippet prototype after confirming no production importers. Historical decision amended for WV02C web delivery below; Swift retains semantic ownership.
 - [x] r2-S4: reserve candidate editor consent and commit only on successful initialization; restore on failure/cancel only before invoking consented attach. Cover managed attach arguments, close tombstones and fresh consent after attach-then-fail/cancel.
 - [x] r2-S5: align Impact, fixed Back label, explicit-identity failure behavior, wire capability limits and HTML label export scenarios.
+
+## LAG-7 PR2 web conformance
+- [x] S1: verify the Python web re-implementation of Swift-owned catalog/profile/snippet rules with `tests/fixtures/cross-project-resolution.json` read by both Python and the Swift ProjectService harness. Native consumers and Swift behavior remain unchanged.

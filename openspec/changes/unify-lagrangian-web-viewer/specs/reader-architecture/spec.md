@@ -1,12 +1,18 @@
 ## ADDED Requirements
 
 ### Requirement: Shared cross-project backend
-The single `flow_reader` backend SHALL own cross-project catalog and preview policy in `flow_reader/services/cross_project_refs.py`. It SHALL load bounded schema-1 `projects.json` catalogs, resolve identities without guessing ambiguous matches, and extract bounded snippets from accepted documents through canonical `import_accepted_document`. Native and web adapters SHALL use this owner while preserving native navigation and consent contracts.
+The single `flow_reader` backend SHALL own the web cross-project preview adapter in `flow_reader/services/cross_project_refs.py`. Web adapters SHALL use it; native clients SHALL retain their Swift owner until an explicit later migration. Swift SHALL remain the matching/snippet semantic owner; Python SHALL conform through the shared JSON fixture.
 
 #### Scenario: Request a preview
-- **WHEN** a uniquely resolved reference has an accepted target document
+- **WHEN** a web adapter requests a uniquely resolved reference with an accepted target document
 - **THEN** the backend returns a bounded preview derived from the canonical accepted document
+- **AND** it loads bounded schema-1 `projects.json` catalogs and extracts snippets through canonical `import_accepted_document`
 - **AND** previewing does not navigate or mutate source
+
+#### Scenario: Verify cross-language conformance
+- **WHEN** Python and Swift matching/snippet tests run
+- **THEN** both read `tests/fixtures/cross-project-resolution.json` and assert the same expected targets and snippets
+- **AND** native navigation and consent retain their existing Swift contracts
 
 #### Scenario: Unavailable or ambiguous target
 - **WHEN** catalog loading, resolution or accepted-document extraction fails or the target is ambiguous

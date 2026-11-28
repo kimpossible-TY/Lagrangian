@@ -2,6 +2,7 @@
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 import re
+import unicodedata
 from urllib.parse import unquote, urlsplit
 
 from flow_reader.server.home import handler_for_home
@@ -12,33 +13,36 @@ from flow_reader.services.homepage import document_prefix, preview_prefix, reade
 def peer_registry(documents, profiles=(), parents=()):
     """Freeze trusted mount aliases; duplicate matches fail closed.
 
-    Explicit projectRefKey is authoritative, then exact profile ID, then the
-    normalized root basename or title of profiles without a configured key.
+    Swift owns matching: exact projectRefKey, then normalized root basename or
+    profile name of profiles without a configured key. Catalog titles and IDs
+    are not aliases. Reader profiles recover the native name from their parent.
     Only the returned closure sees roots; the wire receives mounted routes.
     """
     def normalized(value):
-        return re.sub(r"[\s_-]+", "-", value.strip().lower())
+        value = unicodedata.normalize("NFC", value)
+        return "-".join(filter(None, re.split(r"[\s_-]+", value.strip().lower())))
     configured = {p["id"]: p for p in profiles}
     parent_by_id = {p["id"]: p for p in parents}
     peers = []
     for identifier, state in documents.items():
         route = document_prefix(identifier)
         profile = configured.get(identifier, {})
-        title = (profile.get("title") or parent_by_id.get(profile.get("parentID"), {}).get("name")
+        name = (parent_by_id.get(profile.get("parentID"), {}).get("name")
                  or profile.get("name") or "")
         project = getattr(state, "project", None)
         root_value = profile.get("root") or getattr(project, "root", None)
         root = Path(root_value).name if root_value else ""
         peers.append((identifier, profile.get("projectRefKey"),
-                      {normalized(root), normalized(title)}, state, route))
+                      {normalized(root), normalized(name)}, state, route))
 
     def lookup(key, title):
-        matches = [p for p in peers if p[1] and p[1] == key]
+        normalized_key = normalized(key)
+        if not normalized_key:
+            return None
+        matches = [p for p in peers if p[1] and
+                   unicodedata.normalize("NFC", p[1]) == unicodedata.normalize("NFC", key)]
         if not matches:
-            matches = [p for p in peers if not p[1] and p[0] == key]
-        if not matches:
-            aliases = {normalized(key), normalized(title)} - {""}
-            matches = [p for p in peers if not p[1] and aliases & (p[2] - {""})]
+            matches = [p for p in peers if not p[1] and normalized_key in p[2]]
         return (matches[0][3], matches[0][4]) if len(matches) == 1 else None
     return lookup
 

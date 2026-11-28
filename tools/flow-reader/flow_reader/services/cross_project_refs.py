@@ -6,15 +6,18 @@ No lookup starts a compiler, reads target source files or adopts an editor sessi
 from contextlib import ExitStack, contextmanager
 import fcntl
 import json
+from itertools import islice
 import math
 import os
 from pathlib import Path
 import re
 import stat
 import threading
+import unicodedata
 from urllib.parse import parse_qs, quote, unquote, urlsplit
 
-from flow_reader.document.native_document import import_accepted_document
+from flow_reader.server.native_reader import import_bounded_document, service_id
+from flow_reader.services.accepted_snapshot import AcceptedSnapshot
 from flow_reader.services.homepage import reader_url
 
 MAX_CATALOG_BYTES = 16 * 1024 * 1024
@@ -41,6 +44,19 @@ def _string(value):
     # Reject lone surrogate scalars before publishing UTF-8 JSON.
     value.encode("utf-8")
     return value
+
+
+def _nfc(value):
+    return unicodedata.normalize("NFC", value)
+
+
+def _nfc_index(keys):
+    """Keep original spellings; canonical collisions must never pick a winner."""
+    result = {}
+    for key in keys:
+        canonical = _nfc(key)
+        result[canonical] = None if canonical in result else key
+    return result
 
 
 def _metadata(target):
@@ -95,6 +111,12 @@ def _signature(info):
 class CrossProjectCatalog:
     def __init__(self, projects):
         self.projects = projects
+        # Swift's decoder coalesces equivalent keys. Retain all source values
+        # here and fail closed on collisions instead of choosing one entry.
+        self._project_keys = _nfc_index(projects)
+        self._reference_keys = {key: _nfc_index(project["references"]) for key, project in projects.items()}
+        self._ambiguous_labels = {key: {_nfc(label) for label in project["ambiguous_labels"]}
+                                  for key, project in projects.items()}
 
     @classmethod
     def load(cls, package_path, max_bytes=MAX_CATALOG_BYTES):
@@ -140,22 +162,30 @@ class CrossProjectCatalog:
         except (OSError, ValueError, TypeError, KeyError, OverflowError, RuntimeError):
             raise ValueError("Project reference catalog unavailable or invalid") from None
 
-    def _target(self, key, label):
-        project = self.projects[key]
-        entry = project["references"][label]
+    def _target(self, key, label, project, entry):
         return {"projectKey": key, "projectTitle": project["title"], "label": label,
                 "refText": entry["text"], "title": entry["text"], "pdfUrl": _pdf_url(project["pdf_url"])}
 
     def resolve(self, project_key=None, label=None, href=None, link_text=None):
         if project_key is not None or label is not None:
-            project = self.projects.get(project_key)
-            if project is None:
+            if not isinstance(project_key, str) or not isinstance(label, str):
                 return {"status": "unresolved"}
-            if label in project["ambiguous_labels"]:
+            canonical_key, canonical_label = _nfc(project_key), _nfc(label)
+            if canonical_key not in self._project_keys:
+                return {"status": "unresolved"}
+            key = self._project_keys[canonical_key]
+            if key is None:
                 return {"status": "ambiguous", "candidates": []}
-            if label not in project["references"]:
+            project = self.projects[key]
+            references = self._reference_keys[key]
+            if canonical_label in self._ambiguous_labels[key]:
+                return {"status": "ambiguous", "candidates": []}
+            if canonical_label not in references:
                 return {"status": "unresolved"}
-            return {"status": "unique", **self._target(project_key, label)}
+            reference = references[canonical_label]
+            if reference is None:
+                return {"status": "ambiguous", "candidates": []}
+            return {"status": "unique", **self._target(project_key, label, project, project["references"][reference])}
         try:
             url = urlsplit(href or "")
             fragment = unquote(url.fragment)
@@ -172,18 +202,82 @@ class CrossProjectCatalog:
             if project["pdf_url"] != pdf:
                 continue
             for label, entry in sorted(project["references"].items()):
-                if entry["page"] != page or (link_text is not None and link_text not in
-                        {entry["text"], entry["text"] + " of " + project["title"]}):
+                if entry["page"] != page or (link_text is not None and _nfc(link_text) not in
+                        {_nfc(entry["text"]), _nfc(entry["text"] + " of " + project["title"])}):
                     continue
                 count += 1
-                ambiguous |= label in project["ambiguous_labels"]
+                ambiguous |= (self._project_keys[_nfc(key)] is None
+                              or self._reference_keys[key][_nfc(label)] is None
+                              or _nfc(label) in self._ambiguous_labels[key])
                 if len(candidates) < MAX_CANDIDATES:
-                    candidates.append(self._target(key, label))
+                    candidates.append(self._target(key, label, project, entry))
         if not count:
             return {"status": "unresolved"}
         if count == 1 and not ambiguous:
             return {"status": "unique", **candidates[0]}
         return {"status": "ambiguous", "candidates": [_metadata(c) for c in candidates]}
+
+
+def _contains_case_insensitive(text, query):
+    """Approximate Foundation's canonical, case-insensitive substring search.
+
+    Match complete case mappings: 'ss' may match 'ß', but 's' must not match
+    half of it. NFC also preserves accents while matching equivalent spellings.
+    Foundation/Unicode version differences remain a language-boundary limit.
+    """
+    text = unicodedata.normalize("NFC", " ".join(text.split()))
+    query = unicodedata.normalize("NFC", query).casefold()
+    forbidden, offset = set(), 0
+    for char in text:
+        size = len(char.casefold())
+        forbidden.update(range(offset + 1, offset + size))
+        offset += size
+    folded = text.casefold()
+    start = folded.find(query)
+    while start >= 0:
+        if start not in forbidden and start + len(query) not in forbidden:
+            return True
+        start = folded.find(query, start + 1)
+    return False
+
+
+def _graphemes(text):
+    """Conservative stdlib clusters for common reader text and emoji.
+
+    Keep marks, variation selectors, emoji modifiers/ZWJ sequences, flag pairs,
+    CRLF and Hangul together. This is not a complete Unicode UAX #29 segmenter;
+    uncommon Indic conjuncts/prepend rules can differ from Swift Character.
+    """
+    def hangul(char):
+        code = ord(char)
+        if 0x1100 <= code <= 0x115F or 0xA960 <= code <= 0xA97C:
+            return "L"
+        if 0x1160 <= code <= 0x11A7 or 0xD7B0 <= code <= 0xD7C6:
+            return "V"
+        if 0x11A8 <= code <= 0x11FF or 0xD7CB <= code <= 0xD7FB:
+            return "T"
+        if 0xAC00 <= code <= 0xD7A3:
+            return "LV" if (code - 0xAC00) % 28 == 0 else "LVT"
+        return ""
+    cluster, regional = "", 0
+    for char in text:
+        code = ord(char)
+        is_regional = 0x1F1E6 <= code <= 0x1F1FF
+        previous = cluster[-1:] or "\0"
+        joins = (unicodedata.category(char).startswith("M") or char in {"\u200c", "\u200d"}
+                 or previous == "\u200d" or 0x1F3FB <= code <= 0x1F3FF
+                 or 0xE0020 <= code <= 0xE007F or previous == "\r" and char == "\n"
+                 or is_regional and regional % 2 == 1
+                 or (hangul(previous), hangul(char)) in {
+                     ("L", "L"), ("L", "V"), ("L", "LV"), ("L", "LVT"),
+                     ("LV", "V"), ("V", "V"), ("LV", "T"), ("V", "T"), ("LVT", "T"), ("T", "T")})
+        if cluster and not joins:
+            yield cluster
+            cluster = ""
+        cluster += char
+        regional = regional + 1 if is_regional else 0
+    if cluster:
+        yield cluster
 
 
 def extract_snippet(native_document, label, reference_text=None, max_chars=600, max_blocks=4, *, manifest=None):
@@ -195,14 +289,14 @@ def extract_snippet(native_document, label, reference_text=None, max_chars=600, 
         yield block
         for child in block.get("children", []):
             yield from nodes(child)
-    anchor = (label or "").strip()
-    query = " ".join((reference_text or "").split()).casefold()
+    anchor = _nfc((label or "").strip())
+    query = " ".join((reference_text or "").split())
     match = next(((i, n) for i, b in enumerate(blocks) for n in nodes(b) if anchor and
-                  (anchor in n.get("anchors", []) or anchor == n.get("id"))), None)
+                  any(anchor == _nfc(candidate) for candidate in n.get("anchors", []))), None)
     if match is None and query:
         match = next(((i, b) for i, b in enumerate(blocks) if any(
-            query in " ".join(b.get(k, "").split()).casefold()
-            for k in ("displayText", "canonicalText", "reference_text"))), None)
+            _contains_case_insensitive(b.get(k, ""), query)
+            for k in ("displayText", "canonicalText"))), None)
     start = match[0] if match else None
     if start is None:
         return None
@@ -219,8 +313,10 @@ def extract_snippet(native_document, label, reference_text=None, max_chars=600, 
     more = (index - start == max_blocks and index < len(blocks) and blocks[index]["sectionID"] == section
             and blocks[index]["kind"] != "heading")
     result = {"text": text, "truncated": more}
-    if len(text) > max_chars:
-        result = {"text": text[:max_chars - 3] + "..." if max_chars >= 3 else text[:max_chars], "truncated": True}
+    characters = list(islice(_graphemes(text), max_chars + 1))
+    if len(characters) > max_chars:
+        result = {"text": "".join(characters[:max_chars - 3]) + "..." if max_chars >= 3
+                  else "".join(characters[:max_chars]), "truncated": True}
     if manifest is not None:
         anchors = manifest.get("anchors", {})
         # The imported block carries DOM IDs and passage keys; only a reader ID
@@ -270,30 +366,75 @@ def target_url(route, anchor, allowed_origin=None):
 
 
 class CatalogAvailability:
-    """Cache validation by catalog identity and modification signature."""
+    """Share one parsed catalog between previews and capability discovery."""
     def __init__(self):
         self.lock = threading.Lock()
         self.signature = None
         self.path = None
+        self.catalog = None
 
-    def check(self, package_path):
+    def load(self, package_path):
         path = Path(package_path)
         with self.lock:
             try:
                 with _open_catalog(package_path) as (_fd, info):
                     signature = _signature(info)
                     if path == self.path and signature == self.signature:
-                        return True
-                CrossProjectCatalog.load(package_path)
+                        return self.catalog
+                catalog = CrossProjectCatalog.load(package_path)
                 with _open_catalog(package_path) as (_fd, info):
                     if signature != _signature(info):
                         raise ValueError("Catalog changed during validation")
             except (OSError, ValueError, RuntimeError):
                 self.signature = None
-                return False
+                self.catalog = None
+                raise ValueError("Project reference catalog unavailable or invalid") from None
             self.path = path
             self.signature = signature
+            self.catalog = catalog
+            return catalog
+
+    def check(self, package_path):
+        try:
+            self.load(package_path)
             return True
+        except ValueError:
+            return False
+
+
+class PreviewImportCache:
+    """One bounded accepted import per target; concurrent requests share work.
+
+    Waiters release the condition lock, and imports never hold either this lock
+    or the target publication lock. Failed imports are cached as metadata-only.
+    """
+    def __init__(self):
+        self.condition = threading.Condition()
+        self.cached = None
+        self.importing = False
+
+    def get(self, snapshot, document_id, incarnation):
+        key = (document_id, snapshot.revision, incarnation)
+        with self.condition:
+            while True:
+                if self.cached is not None and self.cached[0] == key and self.cached[1] is snapshot.bundle:
+                    return self.cached[2]
+                if not self.importing:
+                    self.importing = True
+                    break
+                self.condition.wait()
+        try:
+            try:
+                result = import_bounded_document(snapshot.bundle, document_id=document_id, service_id=incarnation)
+            except (ValueError, TypeError, KeyError, UnicodeError, RecursionError, OSError):
+                result = None
+            with self.condition:
+                self.cached = (key, snapshot.bundle, result)
+            return result
+        finally:
+            with self.condition:
+                self.importing = False
+                self.condition.notify_all()
 
 
 class CrossProjectPreviewService:
@@ -303,7 +444,7 @@ class CrossProjectPreviewService:
         self.allowed_origin = allowed_origin
 
     def catalog(self):
-        return CrossProjectCatalog.load(self.state.project.packages)
+        return self.state.catalog_availability.load(self.state.project.packages)
 
     @property
     def available(self):
@@ -334,18 +475,25 @@ class CrossProjectPreviewService:
         result["targetUrl"] = target_url(route, result["anchor"], self.allowed_origin)
         if result["targetUrl"] is None:
             return result
-        # Publication lock binds the importer to the accepted bundle. No source
-        # fingerprint I/O: preview intentionally reads the last accepted document.
+        # Capture only publication identity under the target lock. Import and
+        # snippet work use the retained accepted bundle outside that lock.
         try:
             with target.lock:
-                if (not target.bundle or not target.revision or target.compiling
-                        or target.bundle.manifest["revision"] != target.revision):
-                    return result
-                service = target.focus.service
-                imported = import_accepted_document(target.bundle, document_id=target.document_id,
-                    service_id=f'reader:{service["pid"]}:{service["startedAt"]}', generation=0)
+                snapshot = AcceptedSnapshot.capture(target, target.revision)
+                document_id = target.document_id
+                incarnation = service_id(target.focus.service)
+            if snapshot is None or not snapshot.revision or snapshot.bundle.manifest["revision"] != snapshot.revision:
+                return result
+            imported = target.cross_project_imports.get(snapshot, document_id, incarnation)
+            if imported is not None:
                 snippet = extract_snippet(imported.document, resolved["label"], resolved["refText"],
-                                          manifest=target.bundle.manifest)
+                                          manifest=snapshot.bundle.manifest)
+                with target.lock:
+                    current = AcceptedSnapshot.capture(target, target.revision)
+                    current_identity = (target.document_id, service_id(target.focus.service))
+                if (current is None or current.bundle is not snapshot.bundle or current.revision != snapshot.revision
+                        or current_identity != (document_id, incarnation)):
+                    return result
                 if snippet is not None:
                     result.update(snippet=snippet["text"], truncated=snippet["truncated"],
                                   anchor=snippet["anchor"],

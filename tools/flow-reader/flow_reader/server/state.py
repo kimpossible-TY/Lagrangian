@@ -21,7 +21,7 @@ from flow_reader.services.edit_location import SharedEditLocation
 from flow_reader.services.source_history import source_snapshots
 from flow_reader.services.source_mapping import edit_location
 from flow_reader.services.accepted_snapshot import AcceptedSnapshot
-from flow_reader.services.cross_project_refs import CatalogAvailability
+from flow_reader.services.cross_project_refs import CatalogAvailability, PreviewImportCache
 from flow_reader.compiler.pool import BrowserCompilePool
 from flow_reader.compiler.diagnostics import CompilerDiagnostics
 from flow_reader.server.compiler_assets import CompilerAssets
@@ -47,6 +47,7 @@ class ReaderState:
         self.shared_edit_stamp = None
         self.lock = threading.RLock()
         self.catalog_availability = CatalogAvailability()
+        self.cross_project_imports = PreviewImportCache()
         self._paragraph_chat = None
         self.chat_provider, self.chat_data = chat_provider, chat_data
         self.accepted_inputs = None

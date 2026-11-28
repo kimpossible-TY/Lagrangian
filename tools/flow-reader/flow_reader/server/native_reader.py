@@ -13,6 +13,8 @@ from flow_reader.services.accepted_snapshot import AcceptedSnapshot
 from flow_reader.services.source_highlight import MAX_SELECTION_SEGMENTS
 
 MAX_DOCUMENT = 64 * 1024 * 1024
+MAX_ASSET = 16 * 1024 * 1024
+MAX_ASSETS = 64 * 1024 * 1024
 MAX_CHAT = 2 * 1024 * 1024
 
 
@@ -22,6 +24,16 @@ def service_id(service):
             or type(service.get("startedAt")) is not int):
         raise ValueError("Invalid service incarnation")
     return f'reader:{service["pid"]}:{service["startedAt"]}'
+
+
+def import_bounded_document(bundle, *, document_id, service_id):
+    """Apply the native expanded-document and asset budgets before caching."""
+    result = import_accepted_document(bundle, document_id=document_id, service_id=service_id, generation=0)
+    if len(json.dumps(result.document, ensure_ascii=False, separators=(",", ":")).encode()) > MAX_DOCUMENT:
+        raise ValueError("Native document limit")
+    if any(len(data) > MAX_ASSET for data in result.assets.values()) or sum(map(len, result.assets.values())) > MAX_ASSETS:
+        raise ValueError("Native asset limit")
+    return result
 
 
 def uuid(value):
@@ -78,13 +90,7 @@ class NativeReaderService:
     def imported(self, snapshot):
         key = (snapshot.revision, snapshot.inputs, service_id(self.state.focus.service))
         if self.cached is None or self.cached[0] != key:
-            result = import_accepted_document(snapshot.bundle, document_id=self.state.document_id,
-                service_id=key[2], generation=0)
-            # Enforce the expanded JSON budget before retaining or publishing a candidate.
-            if len(json.dumps(result.document, ensure_ascii=False, separators=(",", ":")).encode()) > MAX_DOCUMENT:
-                raise ValueError("Native document limit")
-            if any(len(data) > 16 * 1024 * 1024 for data in result.assets.values()) or sum(map(len, result.assets.values())) > 64 * 1024 * 1024:
-                raise ValueError("Native asset limit")
+            result = import_bounded_document(snapshot.bundle, document_id=self.state.document_id, service_id=key[2])
             self.cached = key, result
         return self.cached[1]
 
